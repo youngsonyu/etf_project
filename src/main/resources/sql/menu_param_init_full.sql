@@ -1,4 +1,13 @@
--- 完整菜单配置表初始化数据（与前端 views 页面一一对应）
+-- ============================================================
+-- 1. Python 脚本配置
+-- ============================================================
+INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
+('PYTHON_SCRIPT_PATH', 'scripts/getETFInfo_new.py', 'Python ETL 脚本的 classpath 路径', 1),
+('PYTHON_COMMAND', 'python', 'Python 执行命令或可执行文件路径，如 python / py / C:\\Python311\\python.exe', 1);
+
+-- ============================================================
+-- 2. 菜单配置表初始化（完整）
+-- ============================================================
 INSERT INTO menu_config (menu_code, menu_name, parent_code, path, icon, sort, is_visible, is_active, remark) VALUES
 ('dashboard', '首页', NULL, '/dashboard', 'HomeFilled', 1, 1, 1, '系统首页'),
 ('system', '系统管理', NULL, NULL, 'Setting', 2, 1, 1, '系统管理菜单(分组父菜单)'),
@@ -21,7 +30,9 @@ INSERT INTO menu_config (menu_code, menu_name, parent_code, path, icon, sort, is
 ('etl_batch_status', 'ETL跑批状态', 'system', '/etl_batch_status', 'Clock', 19, 1, 1, 'ETL跑批状态管理'),
 ('etl_checkpoint', 'ETL跑批检查点', 'system', '/etl_checkpoint', 'Memo', 20, 1, 1, 'ETL跑批检查点管理');
 
--- 完整参数配置表初始化数据（每个菜单对应一个显示参数）
+-- ============================================================
+-- 3. 菜单显示参数配置
+-- ============================================================
 INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
 ('menu.dashboard.visible', '1', '首页菜单是否显示', 1),
 ('menu.etf_fund_flow_summary.visible', '1', 'ETF资金流向菜单是否显示', 1),
@@ -39,56 +50,108 @@ INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
 ('menu.etf_five_dimension_report.visible', '1', 'ETF五维共振报告菜单是否显示', 1),
 ('menu.menu_config.visible', '1', '菜单配置菜单是否显示', 1),
 ('menu.sys_param.visible', '1', '参数配置菜单是否显示', 1),
-('menu.etl_batch_status.visible', '1', 'ETL跑批状态菜单是否显示', 1),
-('menu.etl_checkpoint.visible', '1', 'ETL跑批检查点菜单是否显示', 1),
 ('menu.system.visible', '1', '系统管理菜单是否显示', 1),
 ('menu.etf_ai_assistant.visible', '1', 'ETF智能助手菜单是否显示', 1),
+('menu.etl_batch_status.visible', '1', 'ETL跑批状态菜单是否显示', 1),
+('menu.etl_checkpoint.visible', '1', 'ETL跑批检查点菜单是否显示', 1);
+
+-- ============================================================
+-- 4. 系统认证与 AI 配置
+-- ============================================================
+INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
 ('auth.admin.username', 'dwb', '管理员登录账号(明文)', 1),
 ('auth.admin.password', 'yy0101.', '管理员登录密码(明文)', 1),
 ('auth.user.register.enabled', '1', '普通用户注册开关：1开放 0关闭', 1),
+('ai.dashscope.api-key', '', '百炼DashScope API Key（通义千问/qwen-max）', 1);
+
+-- ============================================================
+-- 5. Redis 配置
+-- ============================================================
+INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
 ('infra.redis.host', 'redis', 'Redis 主机地址（容器内建议redis，本地建议127.0.0.1）', 1),
 ('infra.redis.port', '6379', 'Redis 端口', 1),
-('infra.redis.password', 'redis123456', 'Redis 连接密码', 1),
+('infra.redis.password', 'redis123456', 'Redis 连接密码', 1);
+
+-- ============================================================
+-- 6. RabbitMQ 配置
+-- ============================================================
+INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
 ('infra.rabbitmq.host', 'rabbitmq', 'RabbitMQ 主机地址（容器内建议rabbitmq，本地建议127.0.0.1）', 1),
 ('infra.rabbitmq.port', '5672', 'RabbitMQ AMQP 端口', 1),
 ('infra.rabbitmq.username', 'admin', 'RabbitMQ 用户名', 1),
 ('infra.rabbitmq.password', 'rabbit123456', 'RabbitMQ 密码', 1),
-('infra.rabbitmq.virtual-host', '/', 'RabbitMQ 虚拟主机', 1),
-('infra.nacos.server-addr', 'nacos:8848', 'Nacos 服务地址（容器内建议nacos:8848，本地建议127.0.0.1:8848）', 1),
+('infra.rabbitmq.virtual-host', '/', 'RabbitMQ 虚拟主机', 1);
+
+-- ============================================================
+-- 7. Nacos 配置
+-- ============================================================
+INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
+('infra.nacos.server-addr', 'nacos:8848', 'Nacos 服务地址（容器内建议nacos:8848，本地建议127.0.0.1:8848）', 1);
+
+-- ============================================================
+-- 8. ETL 定时任务配置
+-- ============================================================
+INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
 ('etl.schedule.enabled', '1', 'ETF Python跑批定时任务是否启用：1启用 0禁用', 1),
-('etl.schedule.time', '08:00', 'ETF Python跑批定时任务执行时间，格式HH:mm', 1),
-('PYTHON_SCRIPT_PATH', 'scripts/getETFInfo_new.py', 'Python ETL 脚本的 classpath 路径', 1),
-('PYTHON_COMMAND', 'python', 'Python 执行命令或可执行文件路径，如 python / py / C:\\Python311\\python.exe', 1),
-('AD_USERNAME', '410500122546', 'AmazingData 用户名', 1),
-('AD_PASSWORD', '', 'AmazingData 密码（请在生产环境中修改）', 1),
-('AD_HOST', '101.230.159.234', 'AmazingData 主机地址', 1),
-('AD_PORT', '8600', 'AmazingData 端口', 1),
-('MYSQL_HOST', '127.0.0.1', 'MySQL 主机地址', 1),
-('MYSQL_PORT', '3306', 'MySQL 端口', 1),
-('MYSQL_USER', 'root', 'MySQL 用户名', 1),
-('MYSQL_PASSWORD', 'Dwb5201314.', 'MySQL 密码', 1),
-('MYSQL_DB', 'amazingdata_etf', 'MySQL 数据库名', 1),
-('MYSQL_CHARSET', 'utf8mb4', 'MySQL 字符集', 1),
+('etl.schedule.time', '08:00', 'ETF Python跑批定时任务执行时间，格式HH:mm', 1);
+
+-- ============================================================
+-- 9. AmazingData 与 MySQL 数据源配置
+-- ============================================================
+INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
+('AD_USERNAME', '410500122546', 'AmazingData用户名', 1),
+('AD_PASSWORD', '', 'AmazingData密码（请修改）', 1),
+('AD_HOST', '101.230.159.234', 'AmazingData主机地址', 1),
+('AD_PORT', '8600', 'AmazingData端口', 1),
+('MYSQL_HOST', '127.0.0.1', 'MySQL主机地址', 1),
+('MYSQL_PORT', '3306', 'MySQL端口', 1),
+('MYSQL_USER', 'root', 'MySQL用户名', 1),
+('MYSQL_PASSWORD', 'Dwb5201314.', 'MySQL密码', 1),
+('MYSQL_DB', 'amazingdata_etf', 'MySQL数据库名', 1),
+('MYSQL_CHARSET', 'utf8mb4', 'MySQL字符集', 1);
+
+-- ============================================================
+-- 10. ETL 运行配置与技术指标参数
+-- ============================================================
+INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
 ('SOURCE', 'AmazingData', '数据来源标识', 1),
 ('DEFAULT_CALENDAR_MARKET', 'SH', '默认交易日历市场', 1),
-('MAX_CODE_BATCH', '300', '单次接口请求 ETF 代码上限', 1),
+('MAX_CODE_BATCH', '300', '单次接口请求ETF代码数量上限', 1),
 ('RUN_MODE', 'recent', '运行模式：full/recent/incremental', 1),
 ('RECENT_DAYS', '1', 'recent 模式处理最近交易日天数', 1),
 ('INCLUDE_TODAY', '0', '是否包含当天交易日：1是0否', 1),
-('MAX_PROCESS_DAYS', '30', '单次最大处理交易日天数（防止任务过长）', 1),
-('KLINE_PERIOD_NAMES', 'day,week,month,season,year', 'K线拉取周期配置', 1),
-('TARGET_PERIODS', 'day,week,month,season', '技术指标目标周期配置', 1),
-('LOOKBACK_BARS', '500', '增量指标计算回看K线根数', 1),
-('SAR_N', '4', 'SAR 参数N', 1),
-('SAR_AF_STEP', '0.02', 'SAR 加速因子步长', 1),
-('SAR_AF_MAX', '0.20', 'SAR 加速因子上限', 1),
-('ENABLE_ETF_SECURITY_MASTER', '1', '是否执行 ETF基础信息表 ETL', 1),
-('ENABLE_TRADE_CALENDAR', '1', '是否执行 交易日历表 ETL', 1),
-('ENABLE_ETF_MARKET_SNAPSHOT', '0', '是否执行 ETF快照表 ETL', 1),
-('ENABLE_ETF_MARKET_KLINE', '1', '是否执行 ETF行情K线表 ETL', 1),
-('ENABLE_ETF_PCF_INFO', '1', '是否执行 ETF PCF头信息 ETL', 1),
-('ENABLE_ETF_PCF_CONSTITUENT', '1', '是否执行 ETF PCF成分券 ETL', 1),
-('ENABLE_ETF_FUND_SHARE', '1', '是否执行 ETF基金份额 ETL', 1),
-('ENABLE_ETF_FUND_IOPV', '1', '是否执行 ETF IOPV ETL', 1),
-('ENABLE_TA_INDICATOR', '1', '是否执行 ETF技术指标计算', 1),
-('ai.dashscope.api-key', '', '百炼DashScope API Key（通义千问/qwen-max）', 1);
+('MAX_PROCESS_DAYS', '30', '单次最多处理天数（避免一次处理太多）', 1),
+('KLINE_PERIOD_NAMES', 'day,week,month,season,year', 'K线周期列表(逗号分隔)', 1),
+('TARGET_PERIODS', 'day,week,month,season', '技术指标计算周期(逗号分隔)', 1),
+('LOOKBACK_BARS', '500', '增量模式回看K线数量', 1),
+('WRITE_CHUNK_SIZE', '2000', '写入分块大小', 1),
+('SAR_N', '4', 'SAR指标N参数', 1),
+('SAR_AF_STEP', '0.02', 'SAR指标加速因子步长', 1),
+('SAR_AF_MAX', '0.20', 'SAR指标加速因子最大值', 1);
+
+-- ============================================================
+-- 11. 表级别 ETL 开关配置（含 ON DUPLICATE KEY UPDATE）
+-- ============================================================
+INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
+('ENABLE_ETF_SECURITY_MASTER', '1', 'ETF基础信息表开关', 1),
+('ENABLE_TRADE_CALENDAR', '1', '交易日历表开关', 1),
+('ENABLE_ETF_MARKET_SNAPSHOT', '0', '行情快照表开关(当前兼容性问题)', 1),
+('ENABLE_ETF_MARKET_KLINE', '1', 'ETF行情K线表开关', 1),
+('ENABLE_ETF_PCF_INFO', '1', 'ETF PCF主表开关', 1),
+('ENABLE_ETF_PCF_CONSTITUENT', '1', 'ETF PCF成分表开关', 1),
+('ENABLE_ETF_FUND_SHARE', '1', 'ETF基金份额表开关', 1),
+('ENABLE_ETF_FUND_IOPV', '1', 'ETF IOPV表开关', 1),
+('ENABLE_TA_INDICATOR', '1', '技术指标计算开关', 1)
+ON DUPLICATE KEY UPDATE
+    param_value = VALUES(param_value),
+    description = VALUES(description),
+    updated_at = CURRENT_TIMESTAMP;
+
+-- ============================================================
+-- 12. ETL 检查点初始化
+-- ============================================================
+INSERT INTO etl_checkpoint (checkpoint_key, last_trade_date, last_batch_no) 
+VALUES ('ETF_KLINE_DAY', 20260520, NULL)
+ON DUPLICATE KEY UPDATE
+    last_trade_date = VALUES(last_trade_date),
+    last_batch_no = VALUES(last_batch_no);

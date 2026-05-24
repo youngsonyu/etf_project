@@ -11,7 +11,12 @@
           end-placeholder="结束日期"
           unlink-panels
         />
-        <el-button type="primary" :loading="submitting" @click="submitAccumulate">确认新增累计</el-button>
+        <el-tooltip v-if="isNormalUser" content="普通用户无法新增累计" placement="top">
+          <span>
+            <el-button type="primary" :loading="submitting" disabled>确认新增累计</el-button>
+          </span>
+        </el-tooltip>
+        <el-button v-else type="primary" :loading="submitting" @click="submitAccumulate">确认新增累计</el-button>
       </div>
     </template>
   </CrudPage>
@@ -50,6 +55,7 @@ const searchItems = [
 const crudPageRef = ref()
 const submitting = ref(false)
 const dateRange = ref([])
+const isNormalUser = ref(localStorage.getItem('etf_login_type') === 'user')
 
 async function submitAccumulate() {
   if (!Array.isArray(dateRange.value) || dateRange.value.length !== 2) {

@@ -1,8 +1,13 @@
 <template>
   <CrudPage :key="searchItemsVersion" ref="crudPageRef" :api="api" :columns="columns" :search-items="searchItems">
     <template #toolbar>
-      <el-button type="primary" :loading="refreshing" @click="confirmRefreshLatest">刷新最新交易日</el-button>
-      <el-button type="success" :loading="exporting" @click="exportCsv">导出CSV</el-button>
+      <el-tooltip v-if="isNormalUser" content="普通用户无法刷新最新交易日" placement="top">
+      <span>
+        <el-button type="primary" :loading="refreshing" disabled>刷新最新交易日</el-button>
+      </span>
+    </el-tooltip>
+    <el-button v-else type="primary" :loading="refreshing" @click="confirmRefreshLatest">刷新最新交易日</el-button>
+    <el-button type="success" :loading="exporting" @click="exportCsv">导出CSV</el-button>
     </template>
   </CrudPage>
 </template>
@@ -20,6 +25,7 @@ const refreshing = ref(false)
 const latestTradeDate = ref('')
 const lastTriggeredDefault = ref('')
 const searchItemsVersion = ref(0)
+const isNormalUser = ref(localStorage.getItem('etf_login_type') === 'user')
 
 const columns = [
   { prop: 'id', label: '主键ID' },

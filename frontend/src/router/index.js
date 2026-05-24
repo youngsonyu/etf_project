@@ -3,6 +3,7 @@
 const routes = [
   { path: '/', redirect: '/dashboard' },
   { path: '/login', name: 'Login', meta: { public: true }, component: () => import('../views/Login.vue') },
+  { path: '/user_menu', name: 'UserMenu', component: () => import('../views/NormalUserMenu.vue') },
   { path: '/dashboard', name: 'Dashboard', component: () => import('../views/Dashboard.vue') },
   { path: '/etf_security_master', name: 'EtfSecurityMaster', component: () => import('../views/EtfSecurityMaster.vue') },
   { path: '/trade_calendar', name: 'TradeCalendar', component: () => import('../views/TradeCalendar.vue') },
@@ -25,6 +26,18 @@ const routes = [
   { path: '/etl_checkpoint', name: 'EtlCheckpoint', component: () => import('../views/EtlCheckpoint.vue') }
 ]
 
+const normalUserAllowedPaths = new Set([
+  '/dashboard',
+  '/etf_fund_flow_summary',
+  '/etf_ta_indicator',
+  '/etf_five_dimension_report',
+  '/etf_five_dimension_resonance',
+  '/etf_fund_flow_chart',
+  '/etf_ai_assistant',
+  '/etf_market_kline',
+  '/user_menu'
+])
+
 const router = createRouter({
   history: createWebHistory(),
   routes
@@ -33,6 +46,8 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   const isLoggedIn = localStorage.getItem('etf_logged_in') === '1'
   const isPublicRoute = Boolean(to.meta && to.meta.public)
+  const loginType = localStorage.getItem('etf_login_type') || ''
+  const isNormalUser = loginType === 'user'
 
   if (!isLoggedIn && !isPublicRoute) {
     next('/login')
@@ -40,7 +55,12 @@ router.beforeEach((to, from, next) => {
   }
 
   if (isLoggedIn && to.path === '/login') {
-    next('/dashboard')
+    next(isNormalUser ? '/user_menu' : '/dashboard')
+    return
+  }
+
+  if (isLoggedIn && isNormalUser && !normalUserAllowedPaths.has(to.path)) {
+    next('/user_menu')
     return
   }
 

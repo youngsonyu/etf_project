@@ -129,7 +129,8 @@ async function handleLogin() {
     localStorage.setItem('etf_display_name', displayName)
     localStorage.setItem('etf_login_type', res?.data?.loginType || loginType.value)
     ElMessage.success('登录成功')
-    router.replace('/dashboard')
+    const redirectPath = loginType.value === 'user' ? '/user_menu' : '/dashboard'
+    router.replace(redirectPath)
   } catch (error) {
     // 错误消息由请求拦截器统一提示
     refreshCaptcha()
@@ -191,7 +192,8 @@ onMounted(() => {
       registerEnabled.value = true
     })
   if (localStorage.getItem('etf_logged_in') === '1') {
-    router.replace('/dashboard')
+    const redirectPath = localStorage.getItem('etf_login_type') === 'user' ? '/user_menu' : '/dashboard'
+    router.replace(redirectPath)
   }
 })
 </script>

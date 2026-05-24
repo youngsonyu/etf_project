@@ -85,6 +85,19 @@ const orderOverride = {
   system: 2
 }
 
+const normalUserAllowedMenuCodes = new Set([
+  'dashboard',
+  'etf_fund_flow_summary',
+  'etf_ta_indicator',
+  'etf_five_dimension_report',
+  'etf_five_dimension_resonance',
+  'etf_fund_flow_chart',
+  'etf_ai_assistant',
+  'etf_market_kline'
+])
+
+const isNormalUser = computed(() => localStorage.getItem('etf_login_type') === 'user')
+
 const fallbackMenus = [
   { menuCode: 'dashboard', menuName: '首页', path: '/dashboard' },
   { menuCode: 'etf_security_master', menuName: 'ETF基础信息', path: '/etf_security_master' },
@@ -210,7 +223,9 @@ async function loadMenus() {
     seen.add(item.menuCode)
     deduped.push(item)
   })
-  menus.value = deduped
+  menus.value = isNormalUser.value
+    ? deduped.filter((item) => normalUserAllowedMenuCodes.has(item.menuCode))
+    : deduped
 }
 
 onMounted(() => {
