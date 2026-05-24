@@ -74,6 +74,32 @@ npm run dev
 
 前端地址：`http://localhost:5173`
 
+## 阿里云 ECS 一键部署
+
+如果你已经在阿里云 ECS 上准备好 Linux 服务器，可以直接使用仓库根目录的部署脚本：
+
+```bash
+chmod +x deploy_aliyun.sh
+./deploy_aliyun.sh
+```
+
+部署脚本会：
+
+- 检查并安装 Docker 和 Docker Compose
+- 复制 `.env.example` 为 `.env`（如果 `.env` 不存在）
+- 启动 `docker-compose.yml` 中的全部服务
+- 使用 `mysql` 容器启动 MySQL，宿主机无需单独安装 MySQL Server
+- 如果根目录包含 `etf_db_dump.sql` 或 `init.sql`，则自动导入 MySQL 数据
+- 做一次后端健康检查
+
+如果你需要从本地 MySQL 导出数据，请先运行：
+
+```powershell
+docker exec etf-mysql sh -c "exec mysqldump -u root -p\"Dwb5201314.\" amazingdata_etf" > etf_db_dump.sql
+```
+
+然后将 `etf_db_dump.sql` 上传到服务器，并再次运行 `./deploy_aliyun.sh`。
+
 ## 已实现内容
 
 - 10 张表后端 CRUD 接口
