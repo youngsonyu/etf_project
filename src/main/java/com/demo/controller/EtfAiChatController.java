@@ -1,4 +1,4 @@
-﻿package com.demo.controller;
+package com.demo.controller;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
@@ -75,12 +75,12 @@ public class EtfAiChatController {
         for (int iter = 0; iter < MAX_ITERATIONS; iter++) {
             JSONObject aiResp = callDashScope(apiKey, messages, tools);
             if (aiResp == null) {
-                return R.error("璋冪敤 AI 鏈嶅姟澶辫触锛岃妫€鏌?API Key 鎴栫綉缁滆繛鎺?);
+                return R.error("调用 AI 服务失败，请检查 API Key 是否正确");
             }
-            // 妫€鏌?API 閿欒
+            // 检查 API 错误
             if (aiResp.containsKey("error")) {
                 String errMsg = aiResp.getJSONObject("error").getString("message");
-                return R.error("DashScope 閿欒锛? + errMsg);
+                return R.error("DashScope 错误：" + errMsg);
             }
 
             JSONArray choices = aiResp.getJSONArray("choices");
@@ -132,7 +132,7 @@ public class EtfAiChatController {
         }
 
         if (finalReply == null) {
-            finalReply = "鎶辨瓑锛屾垜鍦ㄨ瀹氳疆娆″唴鏈兘瀹屾垚鍒嗘瀽锛岃灏濊瘯鎹竴绉嶆洿鍏蜂綋鐨勬彁闂柟寮忋€?;
+            finalReply = "抱歉，当前对话超出处理范围，建议再试一次更具体的提问。";
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
