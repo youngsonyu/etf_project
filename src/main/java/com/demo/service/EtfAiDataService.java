@@ -44,7 +44,8 @@ public class EtfAiDataService {
          .last("LIMIT 1");
         List<TradeCalendar> rows = tradeCalendarMapper.selectList(w);
         if (rows == null || rows.isEmpty()) return null;
-        return rows.get(0).getTradeDate();
+        LocalDate tradeDate = rows.get(0).getTradeDate();
+        return tradeDate == null ? null : tradeDate.toString();
     }
 
     // ─────────────────────────────────────────────
