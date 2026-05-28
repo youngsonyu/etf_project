@@ -73,6 +73,12 @@ public interface BaseCrudService<T> extends IService<T> {
                     continue;
                 }
 
+                if (filterKey.endsWith("Like")) {
+                    String actualKey = filterKey.substring(0, filterKey.length() - 4);
+                    wrapper.like(QueryBuilder.toSnakeCase(actualKey), value);
+                    continue;
+                }
+
                 wrapper.eq(QueryBuilder.toSnakeCase(filterKey), value);
             }
         }

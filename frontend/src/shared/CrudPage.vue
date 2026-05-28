@@ -41,7 +41,7 @@
 
     <el-card>
       <div class="toolbar">
-        <slot name="toolbar" :reload="loadData" />
+        <slot name="toolbar" :reload="loadData" :openDialog="openDialog" />
         <!-- <el-button type="primary" @click="openDialog()">新增</el-button> -->
         <!-- <el-button type="danger" :disabled="!selectedIds.length" @click="handleBatchDelete">批量删除</el-button> -->
       </div>
@@ -60,9 +60,10 @@
             {{ col.valueMap[scope.row[col.prop]] !== undefined ? col.valueMap[scope.row[col.prop]] : scope.row[col.prop] }}
           </template>
         </el-table-column>
-        <el-table-column v-if="enableRowDelete" label="操作" width="120" fixed="right">
+        <el-table-column v-if="enableRowActions || enableRowDelete" label="操作" width="180" fixed="right">
           <template #default="scope">
-            <el-button type="danger" link @click="handleDelete(scope.row)">删除</el-button>
+            <el-button v-if="enableRowActions" size="small" type="primary" link @click="openDialog(scope.row)">编辑</el-button>
+            <el-button v-if="enableRowDelete" size="small" type="danger" link @click="handleDelete(scope.row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -103,10 +104,12 @@ const props = defineProps({
   columns: { type: Array, required: true },
   searchFields: { type: Array, default: () => [] },
   searchItems: { type: Array, default: null },
-  enableRowDelete: { type: Boolean, default: false }
+  enableRowDelete: { type: Boolean, default: false },
+  enableRowActions: { type: Boolean, default: false }
 })
 
 const enableRowDelete = computed(() => props.enableRowDelete)
+const enableRowActions = computed(() => props.enableRowActions)
 
 const normalizedColumns = computed(() =>
   (props.columns || [])
@@ -276,7 +279,8 @@ onMounted(() => {
 
 defineExpose({
   loadData,
-  buildParams
+  buildParams,
+  openDialog
 })
 </script>
 

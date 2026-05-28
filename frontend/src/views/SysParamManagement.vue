@@ -1,5 +1,9 @@
 <template>
-  <CrudPage :api="api" :columns="columns" :search-items="searchItems" />
+  <CrudPage :api="api" :columns="columns" :search-items="searchItems" :enable-row-actions="true">
+    <template #toolbar="{ openDialog }">
+      <el-button type="primary" @click="openDialog()">新增</el-button>
+    </template>
+  </CrudPage>
 </template>
 
 <script setup>
@@ -15,8 +19,8 @@ const columns = [
 ]
 
 const searchItems = [
-  { prop: 'paramKey', label: '参数键', type: 'input' },
-  { prop: 'description', label: '参数描述', type: 'input' },
+  { prop: 'paramKeyLike', label: '参数键', type: 'input' },
+  { prop: 'descriptionLike', label: '参数描述', type: 'input' },
   {
     prop: 'isActive',
     label: '是否有效',
