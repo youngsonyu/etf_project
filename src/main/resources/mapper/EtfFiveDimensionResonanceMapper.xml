@@ -183,10 +183,13 @@
                   AND qh.batch_day &lt; #{latestBatchDate}
             ) AS previous_triggered_date,
             (
-                SELECT MAX(STR_TO_DATE(qh.batch_day, '%Y%m%d'))
-                FROM qualified_history qh
-                WHERE qh.etf_code = sm.etf_code
-                  AND qh.batch_day &lt;= #{latestBatchDate}
+                SELECT MAX(DATE(t.trade_time))
+                FROM etf_ta_indicator t
+                WHERE t.etf_code = sm.etf_code
+                  AND t.period = 'day'
+                  AND t.is_macd_golden_state = 1
+                  AND t.is_sar_bullish = 1
+                  AND DATE(t.trade_time) &lt;= #{tradeDate}
             ) AS last_triggered_date,
             COALESCE(t1.source, 'AmazingData') AS source,
             COALESCE(t1.etl_batch_no, CONCAT(#{latestBatchDate}, '_FIVE_DIM')) AS etl_batch_no
@@ -246,5 +249,11 @@
             etl_batch_no = VALUES(etl_batch_no),
             updated_at = CURRENT_TIMESTAMP
     </insert>
+
+    <select id="selectMaxLastTriggeredDate" resultType="java.lang.String">
+        SELECT DATE_FORMAT(MAX(last_triggered_date), '%Y-%m-%d')
+        FROM etf_five_dimension_resonance
+        WHERE last_triggered_date IS NOT NULL
+    </select>
 
 </mapper>

@@ -90,26 +90,34 @@ public interface BaseCrudService<T> extends IService<T> {
 
     private void applySort(QueryWrapper<T> wrapper, PageParam param) {
         if (param.getFilters() == null) {
+            wrapper.orderByDesc(getDefaultSortColumn());
             return;
         }
 
         Object sortFieldObj = param.getFilters().get("sortField");
         Object sortOrderObj = param.getFilters().get("sortOrder");
         if (sortFieldObj == null || sortOrderObj == null) {
+            wrapper.orderByDesc(getDefaultSortColumn());
             return;
         }
 
         String sortField = String.valueOf(sortFieldObj).trim();
         String sortOrder = String.valueOf(sortOrderObj).trim();
         if (!StringUtils.hasText(sortField) || !StringUtils.hasText(sortOrder)) {
+            wrapper.orderByDesc(getDefaultSortColumn());
             return;
         }
 
         if (!sortField.matches("[A-Za-z][A-Za-z0-9]*")) {
+            wrapper.orderByDesc(getDefaultSortColumn());
             return;
         }
 
         wrapper.orderBy(true, "asc".equalsIgnoreCase(sortOrder), QueryBuilder.toSnakeCase(sortField));
+    }
+
+    default String getDefaultSortColumn() {
+        return "id";
     }
 
     private String lambdaToColumn(SFunction<T, ?> fn) {

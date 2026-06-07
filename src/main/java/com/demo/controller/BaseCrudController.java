@@ -24,8 +24,30 @@ public abstract class BaseCrudController<T> {
         long pageSize = Long.parseLong(String.valueOf(params.getOrDefault("pageSize", 10)));
 
         QueryWrapper<T> wrapper = QueryBuilder.build(params, getEntityClass());
+        applyDefaultSort(wrapper, params);
         IPage<T> result = getService().page(new Page<>(pageNum, pageSize), wrapper);
         return R.ok(result);
+    }
+
+    private void applyDefaultSort(QueryWrapper<T> wrapper, Map<String, Object> params) {
+        Object sortFieldObj = params.get("sortField");
+        Object sortOrderObj = params.get("sortOrder");
+        if (sortFieldObj != null && sortOrderObj != null) {
+            String sortField = String.valueOf(sortFieldObj).trim();
+            String sortOrder = String.valueOf(sortOrderObj).trim();
+            if (!sortField.isEmpty() && !sortOrder.isEmpty()) {
+                wrapper.orderBy(true, "asc".equalsIgnoreCase(sortOrder), QueryBuilder.toSnakeCase(sortField));
+                return;
+            }
+        }
+        String defaultColumn = getDefaultSortColumn();
+        if (defaultColumn != null) {
+            wrapper.orderByDesc(defaultColumn);
+        }
+    }
+
+    protected String getDefaultSortColumn() {
+        return null;
     }
 
     @GetMapping("/{id}")

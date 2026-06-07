@@ -18,4 +18,6 @@ public interface EtfFiveDimensionResonanceMapper extends BaseMapper<EtfFiveDimen
 	int upsertByBatchDate(@Param("latestBatchDate") String latestBatchDate,
 						  @Param("previousBatchDate") String previousBatchDate,
 						  @Param("tradeDate") String tradeDate);
+
+	String selectMaxLastTriggeredDate();
 }

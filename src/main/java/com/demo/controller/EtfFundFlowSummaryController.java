@@ -46,6 +46,11 @@ public class EtfFundFlowSummaryController {
         return R.ok(baseService.getById(id));
     }
 
+    @GetMapping("/chart-flow-data")
+    public R<List<EtfFundFlowSummary>> getChartFlowDataByDate(@RequestParam String tradeDate) {
+        return R.ok(baseService.getDataByDate(tradeDate));
+    }
+
     @PostMapping
     public R<Boolean> save(@RequestBody EtfFundFlowSummary entity) {
         return R.ok(baseService.save(entity));

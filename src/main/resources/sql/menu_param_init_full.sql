@@ -6,34 +6,53 @@ INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
 ('PYTHON_COMMAND', 'python', 'Python 执行命令或可执行文件路径，如 python / py / C:\\Python311\\python.exe', 1);
 
 -- ============================================================
--- 2. 菜单配置表初始化（完整）
+-- 2. 菜单配置表初始化（按分类组织）
 -- ============================================================
 INSERT INTO menu_config (menu_code, menu_name, parent_code, path, icon, sort, is_visible, is_active, remark) VALUES
-('dashboard', '首页', NULL, '/dashboard', 'HomeFilled', 1, 1, 1, '系统首页'),
-('system', '系统管理', NULL, NULL, 'Setting', 2, 1, 1, '系统管理菜单(分组父菜单)'),
-('etf_fund_flow_summary', 'ETF资金流向', NULL, '/etf_fund_flow_summary', 'TrendCharts', 3, 1, 1, 'ETF资金流向统计'),
-('etf_fund_flow_chart', 'ETF资金流向图表', NULL, '/etf_fund_flow_chart', 'PieChart', 4, 1, 1, 'ETF资金流向图表'),
-('etf_fund_iopv', 'ETF IOPV净值', NULL, '/etf_fund_iopv', 'Histogram', 5, 1, 1, 'ETF IOPV净值'),
-('etf_fund_share', 'ETF基金份额', NULL, '/etf_fund_share', 'PieChart', 6, 1, 1, 'ETF基金份额'),
-('etf_market_kline', 'K线数据', NULL, '/etf_market_kline', 'LineChart', 7, 1, 1, 'K线数据'),
-('etf_market_snapshot', 'ETF快照', NULL, '/etf_market_snapshot', 'Monitor', 8, 1, 1, 'ETF实时/历史快照'),
-('etf_pcf_constituent', 'ETF PCF成分券', NULL, '/etf_pcf_constituent', 'Tickets', 9, 1, 1, 'ETF每日PCF成分券明细'),
-('etf_pcf_info', 'ETF PCF头信息', NULL, '/etf_pcf_info', 'Document', 10, 1, 1, 'ETF每日PCF头信息'),
-('etf_security_master', 'ETF基础信息', NULL, '/etf_security_master', 'Notebook', 11, 1, 1, 'ETF基础信息主表'),
-('etf_ta_indicator', 'ETF技术指标', NULL, '/etf_ta_indicator', 'DataAnalysis', 12, 1, 1, 'ETF技术指标'),
-('etf_five_dimension_resonance', 'ETF五维共振数据分析', NULL, '/etf_five_dimension_resonance', 'DataLine', 13, 1, 1, 'ETF五维共振数据分析'),
-('etf_five_dimension_report', 'ETF五维共振报告', NULL, '/etf_five_dimension_report', 'ReadingLamp', 14, 1, 1, 'ETF五维共振报告发布与查看'),
-('trade_calendar', '交易日历', 'system', '/trade_calendar', 'Calendar', 15, 1, 1, '交易日历表'),
-('menu_config', '菜单配置', 'system', '/menu_config', 'Operation', 16, 1, 1, '系统菜单配置'),
-('sys_param', '参数配置', 'system', '/sys_param', 'Tools', 17, 1, 1, '系统参数配置'),
-('etf_ai_assistant', 'ETF智能助手', NULL, '/etf_ai_assistant', 'MagicStick', 18, 1, 1, 'ETF AI智能分析助手'),
-('etl_batch_status', 'ETL跑批状态', 'system', '/etl_batch_status', 'Clock', 19, 1, 1, 'ETL跑批状态管理'),
-('etl_checkpoint', 'ETL跑批检查点', 'system', '/etl_checkpoint', 'Memo', 20, 1, 1, 'ETL跑批检查点管理');
+-- 父分类（path=null 表示分组父菜单，不可点击）
+('etf_home', '首页', NULL, NULL, 'HomeFilled', 5, 1, 1, '首页分类'),
+('etf_regular', 'ETF常规指标', NULL, NULL, 'DataAnalysis', 10, 1, 1, 'ETF常规指标分类'),
+('etf_quant', 'ETF量化模型', NULL, NULL, 'DataLine', 20, 1, 1, 'ETF量化模型分类'),
+('etf_ai', 'ETF智能助手', NULL, NULL, 'MagicStick', 25, 1, 1, 'ETF智能助手分类'),
+('system', '系统管理', NULL, NULL, 'Setting', 30, 1, 1, '系统管理分类'),
+
+-- 首页子菜单
+('dashboard', '首页', 'etf_home', '/dashboard', 'HomeFilled', 6, 1, 1, '系统首页'),
+
+-- ETF常规指标子菜单
+('etf_fund_flow_summary', 'ETF资金流向', 'etf_regular', '/etf_fund_flow_summary', 'TrendCharts', 11, 1, 1, 'ETF资金流向统计'),
+('etf_fund_flow_chart', 'ETF资金流向图表', 'etf_regular', '/etf_fund_flow_chart', 'PieChart', 12, 1, 1, 'ETF资金流向图表'),
+('etf_security_master', 'ETF基础信息', 'etf_regular', '/etf_security_master', 'Notebook', 13, 1, 1, 'ETF基础信息主表'),
+('etf_market_snapshot', 'ETF行情快照', 'etf_regular', '/etf_market_snapshot', 'Monitor', 14, 1, 1, 'ETF实时/历史快照'),
+('etf_market_kline', 'K线数据', 'etf_regular', '/etf_market_kline', 'LineChart', 15, 1, 1, 'K线数据'),
+('etf_pcf_info', 'ETF PCF头信息', 'etf_regular', '/etf_pcf_info', 'Document', 16, 1, 1, 'ETF每日PCF头信息'),
+('etf_pcf_constituent', 'ETF PCF成分券', 'etf_regular', '/etf_pcf_constituent', 'Tickets', 17, 1, 1, 'ETF每日PCF成分券明细'),
+('etf_fund_share', 'ETF基金份额', 'etf_regular', '/etf_fund_share', 'PieChart', 18, 1, 1, 'ETF基金份额'),
+('etf_fund_iopv', 'ETF IOPV净值', 'etf_regular', '/etf_fund_iopv', 'Histogram', 19, 1, 1, 'ETF IOPV净值'),
+('etf_ta_indicator', 'ETF技术指标', 'etf_regular', '/etf_ta_indicator', 'DataAnalysis', 20, 1, 1, 'ETF技术指标'),
+
+-- ETF量化模型子菜单
+('etf_five_dimension_resonance', 'ETF量化数据分析', 'etf_quant', '/etf_five_dimension_resonance', 'DataLine', 21, 1, 1, 'ETF量化数据分析'),
+('etf_five_dimension_report', 'ETF量化报告', 'etf_quant', '/etf_five_dimension_report', 'ReadingLamp', 22, 1, 1, 'ETF量化报告'),
+
+-- ETF智能助手子菜单
+('etf_ai_assistant', 'ETF智能助手', 'etf_ai', '/etf_ai_assistant', 'MagicStick', 26, 1, 1, 'ETF AI智能分析助手'),
+
+-- 系统管理子菜单
+('trade_calendar', '交易日历', 'system', '/trade_calendar', 'Calendar', 31, 1, 1, '交易日历表'),
+('menu_config', '菜单配置', 'system', '/menu_config', 'Operation', 32, 1, 1, '系统菜单配置'),
+('sys_param', '参数配置', 'system', '/sys_param', 'Tools', 33, 1, 1, '系统参数配置'),
+('etl_batch_status', 'ETL跑批状态', 'system', '/etl_batch_status', 'Clock', 34, 1, 1, 'ETL跑批状态管理'),
+('etl_checkpoint', 'ETL跑批检查点', 'system', '/etl_checkpoint', 'Memo', 35, 1, 1, 'ETL跑批检查点管理');
 
 -- ============================================================
 -- 3. 菜单显示参数配置
 -- ============================================================
 INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
+('menu.etf_home.visible', '1', '首页分类菜单是否显示', 1),
+('menu.etf_regular.visible', '1', 'ETF常规指标分类菜单是否显示', 1),
+('menu.etf_quant.visible', '1', 'ETF量化模型分类菜单是否显示', 1),
+('menu.etf_ai.visible', '1', 'ETF智能助手分类菜单是否显示', 1),
 ('menu.dashboard.visible', '1', '首页菜单是否显示', 1),
 ('menu.etf_fund_flow_summary.visible', '1', 'ETF资金流向菜单是否显示', 1),
 ('menu.etf_fund_flow_chart.visible', '1', 'ETF资金流向图表菜单是否显示', 1),
@@ -45,13 +64,13 @@ INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
 ('menu.etf_pcf_info.visible', '1', 'ETF PCF头信息菜单是否显示', 1),
 ('menu.etf_security_master.visible', '1', 'ETF基础信息菜单是否显示', 1),
 ('menu.etf_ta_indicator.visible', '1', 'ETF技术指标菜单是否显示', 1),
+('menu.etf_five_dimension_resonance.visible', '1', 'ETF量化数据分析菜单是否显示', 1),
+('menu.etf_five_dimension_report.visible', '1', 'ETF量化报告菜单是否显示', 1),
+('menu.etf_ai_assistant.visible', '1', 'ETF智能助手菜单是否显示', 1),
 ('menu.trade_calendar.visible', '1', '交易日历菜单是否显示', 1),
-('menu.etf_five_dimension_resonance.visible', '1', 'ETF五维共振数据分析菜单是否显示', 1),
-('menu.etf_five_dimension_report.visible', '1', 'ETF五维共振报告菜单是否显示', 1),
 ('menu.menu_config.visible', '1', '菜单配置菜单是否显示', 1),
 ('menu.sys_param.visible', '1', '参数配置菜单是否显示', 1),
 ('menu.system.visible', '1', '系统管理菜单是否显示', 1),
-('menu.etf_ai_assistant.visible', '1', 'ETF智能助手菜单是否显示', 1),
 ('menu.etl_batch_status.visible', '1', 'ETL跑批状态菜单是否显示', 1),
 ('menu.etl_checkpoint.visible', '1', 'ETL跑批检查点菜单是否显示', 1);
 
@@ -62,7 +81,7 @@ INSERT INTO sys_param (param_key, param_value, description, is_active) VALUES
 ('auth.admin.username', 'dwb', '管理员登录账号(明文)', 1),
 ('auth.admin.password', 'yy0101.', '管理员登录密码(明文)', 1),
 ('auth.user.register.enabled', '1', '普通用户注册开关：1开放 0关闭', 1),
-('ai.dashscope.api-key', '', '百炼DashScope API Key（通义千问/qwen-max）', 1);
+('ai.dashscope.api-key', '', 'MiniMax API Key', 1);
 
 -- ============================================================
 -- 5. Redis 配置

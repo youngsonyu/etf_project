@@ -23,19 +23,28 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CrudPage from '@/shared/CrudPage.vue'
 import api from '@/api/etfFundFlowSummary'
+import etlProgressApi from '@/api/etlProgress'
 
-function getYesterday() {
-  const date = new Date()
-  date.setDate(date.getDate() - 1)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
+const crudPageRef = ref()
+const submitting = ref(false)
+const dateRange = ref([])
+const isNormalUser = ref(localStorage.getItem('etf_login_type') === 'user')
+const defaultTradeDate = ref('')
+
+onMounted(async () => {
+  try {
+    const res = await etlProgressApi.currentTradeDate()
+    const raw = res?.data
+    if (raw && /^\d{8}$/.test(String(raw))) {
+      const s = String(raw)
+      defaultTradeDate.value = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+    }
+  } catch {}
+})
 
 const columns = [
   { prop: 'id', label: '主键ID' },
@@ -46,16 +55,12 @@ const columns = [
   { prop: 'cumulativeFlow', label: '累计资金流向' },
   { prop: 'changeReason', label: '变动原因' }
 ]
-const searchItems = [
+
+const searchItems = computed(() => [
   { prop: 'etfCode', label: 'ETF代码', type: 'input' },
   { prop: 'etfName', label: 'ETF简称', type: 'input' },
-  { prop: 'tradeDate', label: '交易日期', type: 'date', defaultValue: getYesterday() }
-]
-
-const crudPageRef = ref()
-const submitting = ref(false)
-const dateRange = ref([])
-const isNormalUser = ref(localStorage.getItem('etf_login_type') === 'user')
+  { prop: 'tradeDate', label: '交易日期', type: 'date', defaultValue: defaultTradeDate.value }
+])
 
 async function submitAccumulate() {
   if (!Array.isArray(dateRange.value) || dateRange.value.length !== 2) {

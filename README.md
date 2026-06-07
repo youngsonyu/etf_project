@@ -1,6 +1,39 @@
-# ETF Project
+# ETF 数据分析平台
 
-基于 Spring Boot 2.7 + MyBatis-Plus + MySQL 8 + Vue 3 + Element Plus 的 ETF CRUD 项目。
+基于 Spring Boot 3.5.7 + MyBatis-Plus + MySQL 8 + Vue 3 + Element Plus 的 ETF 数据管理与智能分析平台。
+
+## 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 后端框架 | Spring Boot 3.5.7 (Java 17) |
+| ORM | MyBatis-Plus 3.5.14 |
+| 数据库 | MySQL 8.4 |
+| 缓存 | Redis |
+| 消息队列 | RabbitMQ |
+| 服务注册 | Nacos |
+| 前端框架 | Vue 3 + Vite |
+| UI 组件库 | Element Plus |
+| API 文档 | Knife4j |
+
+## 功能模块
+
+### ETF 数据管理
+- **基金数据**：IOPV 估值、份额管理
+- **市场数据**：实时行情快照、K线数据
+- **PCF 数据**：申购赎回清单（PCF）信息及成分股
+- **资金流分析**：资金流向汇总与可视化图表
+- **TA 指标**：技术分析指标管理
+
+### 智能分析
+- **五维共振分析**：多维度共振信号识别
+- **AI 智能助手**：ETF 相关问题的智能问答
+
+### 系统管理
+- **用户认证**：登录与权限管理
+- **参数配置**：系统参数管理与模糊查询
+- **菜单配置**：动态菜单管理
+- ** ETL 监控**：批处理任务状态与检查点管理
 
 ## Docker 一键启动
 
@@ -12,24 +45,18 @@
 - Nacos
 - 后端服务
 
-启动前建议先准备 `.env` 或直接修改 compose 中的默认密码。
-
-说明：
-
-- MySQL 的账号密码不能只放在数据库里，因为应用连接数据库之前就必须先拿到它。
-- Redis、RabbitMQ、Nacos 的连接参数可以由数据库里的参数表管理，但前提仍然是应用先连上 MySQL。
-- 已预置以下参数键到 `sys_param`：`infra.redis.*`、`infra.rabbitmq.*`、`infra.nacos.server-addr`。
-- `/api/infra/health` 会优先读取这些数据库参数进行连通性检查；若未配置则回退到应用环境变量。
-
-推荐启动方式：
-
 ```bash
 docker compose up -d --build
 ```
 
-后端地址：`http://localhost:8080`
-Nacos 控制台：`http://localhost:8848/nacos`
-RabbitMQ 控制台：`http://localhost:15672`
+启动后服务地址：
+
+| 服务 | 地址 |
+|------|------|
+| 后端 API | http://localhost:8080 |
+| API 文档 | http://localhost:8080/doc.html |
+| Nacos 控制台 | http://localhost:8848/nacos |
+| RabbitMQ 控制台 | http://localhost:15672 |
 
 连通性检查：
 
@@ -37,74 +64,57 @@ RabbitMQ 控制台：`http://localhost:15672`
 curl http://localhost:8080/api/infra/health
 ```
 
-该接口会依次检查 MySQL、Redis、RabbitMQ 和 Nacos 是否可达。
-
 ## 目录结构
 
-- `src/main/java/com/demo` 后端代码
-- `src/main/resources/init.sql` 数据库初始化脚本
-- `frontend` 前端 Vite 项目
-
-## 数据库初始化
-
-1. 创建数据库：`etf_db`
-2. 执行初始化脚本：`src/main/resources/init.sql`
-3. 根据实际环境修改 `src/main/resources/application.yml` 的数据库账号密码
+```
+etfProject/
+├── src/main/java/com/demo/    # 后端代码
+│   ├── controller/            # 控制器层
+│   ├── service/               # 业务逻辑层
+│   ├── mapper/                 # 数据访问层
+│   ├── entity/                # 实体类
+│   ├── config/                 # 配置类
+│   └── utils/                  # 工具类
+├── src/main/resources/
+│   └── init.sql               # 数据库初始化脚本
+├── frontend/                   # 前端 Vite 项目
+│   └── src/views/             # 页面组件
+├── docker-compose.yml         # Docker 编排配置
+└── Dockerfile                # 后端镜像构建
+```
 
 ## 后端启动
-
-在项目根目录执行：
 
 ```bash
 mvn spring-boot:run
 ```
 
-后端地址：`http://localhost:8080`
-
-API 文档：`http://localhost:8080/doc.html`
-
 ## 前端启动
 
-在 `frontend` 目录执行：
-
 ```bash
+cd frontend
 npm install
 npm run dev
 ```
 
-前端地址：`http://localhost:5173`
+前端地址：http://localhost:5173
 
 ## 阿里云 ECS 一键部署
-
-如果你已经在阿里云 ECS 上准备好 Linux 服务器，可以直接使用仓库根目录的部署脚本：
 
 ```bash
 chmod +x deploy_aliyun.sh
 ./deploy_aliyun.sh
 ```
 
-部署脚本会：
-
-- 检查并安装 Docker 和 Docker Compose
-- 复制 `.env.example` 为 `.env`（如果 `.env` 不存在）
-- 启动 `docker-compose.yml` 中的全部服务
-- 使用 `mysql` 容器启动 MySQL，宿主机无需单独安装 MySQL Server
-- 如果根目录包含 `etf_db_dump.sql` 或 `init.sql`，则自动导入 MySQL 数据
-- 做一次后端健康检查
-
-如果你需要从本地 MySQL 导出数据，请先运行：
-
-```powershell
-docker exec etf-mysql sh -c "exec mysqldump -u root -p\"Dwb5201314.\" amazingdata_etf" > etf_db_dump.sql
-```
-
-然后将 `etf_db_dump.sql` 上传到服务器，并再次运行 `./deploy_aliyun.sh`。
+部署脚本会检查并安装 Docker Compose、启动全部服务、自动导入数据库初始化脚本，并进行健康检查。
 
 ## 已实现内容
 
-- 10 张表后端 CRUD 接口
+- 17 张表的后端 CRUD 接口
 - 统一返回格式 `code/message/data`
 - 分页接口和关键字检索
-- Vue3 + Element Plus 通用 CRUD 页面
-- 每张表独立路由页面
-- Axios 请求封装与代理配置
+- 基于通用 CRUD 组件的 Vue3 页面
+- AI 智能助手功能
+- 系统参数动态配置
+- ETL 批处理监控
+- 五维共振分析模块

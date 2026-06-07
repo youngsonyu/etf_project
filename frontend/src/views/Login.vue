@@ -1,8 +1,8 @@
 <template>
   <div class="login-page">
     <div class="login-brand">
-      <h1>ETF数据分析平台</h1>
-      <p>聚合ETF行情、指标、资金流与五维共振分析</p>
+      <h1>ETF量化分析平台</h1>
+      <p>聚合ETF行情、指标、资金流与量化分析</p>
     </div>
 
     <el-card class="login-card">
@@ -43,14 +43,14 @@
 
     <el-dialog v-model="registerVisible" title="普通用户注册" width="420px" destroy-on-close>
       <el-form :model="registerForm" label-width="90px" @submit.prevent>
-        <el-form-item label="账号">
-          <el-input v-model="registerForm.username" placeholder="4-32位字母、数字或下划线" maxlength="32" clearable />
+        <el-form-item label="手机号">
+          <el-input v-model="registerForm.username" placeholder="仅支持手机号注册" maxlength="11" clearable />
         </el-form-item>
-        <el-form-item label="显示名称">
-          <el-input v-model="registerForm.displayName" placeholder="可选，不填则默认使用账号" maxlength="32" clearable />
+        <el-form-item label="用户名">
+          <el-input v-model="registerForm.displayName" placeholder="请输入用户名" maxlength="32" clearable />
         </el-form-item>
         <el-form-item label="密码">
-          <el-input v-model="registerForm.password" type="password" show-password placeholder="请输入密码" clearable />
+          <el-input v-model="registerForm.password" type="password" show-password placeholder="大小写字母+数字组合，8-20位" clearable />
         </el-form-item>
         <el-form-item label="确认密码">
           <el-input v-model="registerForm.confirmPassword" type="password" show-password placeholder="请再次输入密码" clearable />
@@ -129,7 +129,7 @@ async function handleLogin() {
     localStorage.setItem('etf_display_name', displayName)
     localStorage.setItem('etf_login_type', res?.data?.loginType || loginType.value)
     ElMessage.success('登录成功')
-    const redirectPath = loginType.value === 'user' ? '/user_menu' : '/dashboard'
+    const redirectPath = '/dashboard'
     router.replace(redirectPath)
   } catch (error) {
     // 错误消息由请求拦截器统一提示
@@ -156,8 +156,25 @@ function resetRegisterForm() {
 }
 
 async function handleRegister() {
-  if (!registerForm.username.trim() || !registerForm.password.trim() || !registerForm.confirmPassword.trim()) {
-    ElMessage.warning('请完整填写注册信息')
+  const phoneReg = /^1[3-9]\d{9}$/
+  if (!phoneReg.test(registerForm.username.trim())) {
+    ElMessage.warning('请输入正确的手机号')
+    return
+  }
+
+  if (!registerForm.displayName.trim()) {
+    ElMessage.warning('请输入用户名')
+    return
+  }
+
+  const passwordReg = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,20}$/
+  if (!passwordReg.test(registerForm.password)) {
+    ElMessage.warning('密码须为大小写字母+数字组合，8-20位')
+    return
+  }
+
+  if (!registerForm.confirmPassword.trim()) {
+    ElMessage.warning('请再次输入密码')
     return
   }
 
@@ -192,8 +209,7 @@ onMounted(() => {
       registerEnabled.value = true
     })
   if (localStorage.getItem('etf_logged_in') === '1') {
-    const redirectPath = localStorage.getItem('etf_login_type') === 'user' ? '/user_menu' : '/dashboard'
-    router.replace(redirectPath)
+    router.replace('/dashboard')
   }
 })
 </script>
@@ -204,117 +220,133 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 56px;
+  gap: 64px;
   padding: 24px;
   box-sizing: border-box;
   background:
-    radial-gradient(circle at 15% 20%, rgba(14, 116, 144, 0.3), transparent 36%),
-    radial-gradient(circle at 85% 80%, rgba(20, 184, 166, 0.25), transparent 42%),
-    linear-gradient(130deg, #dbeafe, #f8fafc 42%, #ecfeff);
+    radial-gradient(circle at 20% 30%, rgba(15, 118, 110, 0.12), transparent 50%),
+    radial-gradient(circle at 80% 70%, rgba(8, 145, 178, 0.1), transparent 45%),
+    linear-gradient(135deg, #f0fdfa 0%, #f8fafc 40%, #ecfeff 100%);
 }
 
 .login-brand {
-  max-width: 460px;
+  max-width: 480px;
   color: #0f172a;
 }
 
 .login-brand h1 {
   margin: 0;
-  font-size: 40px;
+  font-size: 42px;
+  font-weight: 800;
   line-height: 1.2;
-  letter-spacing: 1px;
+  letter-spacing:1px;
+  color: #0f766e;
+  text-shadow: 0 2px 4px rgba(15, 118, 110, 0.1);
 }
 
 .login-brand p {
-  margin: 14px 0 0;
-  font-size: 15px;
-  color: #334155;
+  margin: 16px 0 0;
+  font-size: 16px;
+  color: #475569;
   line-height: 1.7;
 }
 
 .login-card {
-  width: 460px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.78);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 24px 56px rgba(15, 23, 42, 0.2);
+  width: 440px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 25px 60px rgba(15, 23, 42, 0.15);
+  overflow: hidden;
+}
+
+.login-card :deep(.el-card__header) {
+  background: linear-gradient(135deg, #f0fdfa 0%, #ffffff 100%);
+  border-bottom: 1px solid #e4e7ed;
+  padding: 18px 20px;
 }
 
 .login-title {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .login-title h2 {
   margin: 0;
-  font-size: 24px;
+  font-size: 22px;
+  font-weight: 700;
   color: #0f172a;
 }
 
 .login-title span {
   font-size: 13px;
-  color: #475569;
+  color: #64748b;
 }
 
 .login-switch {
   display: flex;
-  margin-bottom: 18px;
+  margin-bottom: 20px;
 }
 
 .login-switch :deep(.el-radio-button__inner) {
   min-width: 140px;
+  border-radius: 8px 8px 0 0;
 }
 
 .captcha-wrap {
   width: 100%;
   display: grid;
   grid-template-columns: 1fr 120px;
-  gap: 8px;
+  gap: 10px;
 }
 
 .captcha-code {
-  height: 32px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: 8px;
   font-weight: 700;
-  letter-spacing: 3px;
+  letter-spacing: 4px;
+  font-size: 16px;
   color: #0f172a;
-  background: linear-gradient(135deg, #a7f3d0, #67e8f9);
+  background: linear-gradient(145deg, #99f6e40%, #a5f3fc 100%);
   border: 1px solid #5eead4;
   cursor: pointer;
   user-select: none;
-  transition: all 0.2s ease;
+  transition: all 0.25s ease;
 }
 
 .captcha-code:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 14px rgba(45, 212, 191, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(45, 212, 191, 0.3);
 }
 
 .login-btn {
   width: 100%;
-  height: 38px;
+  height: 40px;
   font-weight: 600;
+  border-radius: 10px;
+  font-size: 15px;
 }
 
 .tips {
-  margin-top: -8px;
+  margin-top: -6px;
   font-size: 12px;
-  color: #64748b;
+  color: #94a3b8;
+  text-align: center;
 }
 
 .register-entry {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
-  margin-top: -8px;
-  margin-bottom: 8px;
-  font-size: 12px;
+  gap: 6px;
+  margin-top: -6px;
+  margin-bottom: 6px;
+  font-size: 13px;
   color: #64748b;
 }
 
@@ -325,13 +357,13 @@ onMounted(() => {
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 10px;
 }
 
 @media (max-width: 900px) {
   .login-page {
     flex-direction: column;
-    gap: 24px;
+    gap: 28px;
   }
 
   .login-brand {
@@ -339,11 +371,11 @@ onMounted(() => {
   }
 
   .login-brand h1 {
-    font-size: 30px;
+    font-size: 28px;
   }
 
   .login-card {
-    width: min(460px, 100%);
+    width: min(440px, 100%);
   }
 }
 </style>

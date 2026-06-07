@@ -51,6 +51,11 @@ public class EtfFiveDimensionResonanceServiceImpl extends ServiceImpl<EtfFiveDim
     }
 
     @Override
+    public String getLastTriggeredDate() {
+        return baseMapper.selectMaxLastTriggeredDate();
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> refreshLatestTradeDate() {
         String latestTradeDate = baseMapper.selectLatestKlineTradeDate();
@@ -128,14 +133,14 @@ public class EtfFiveDimensionResonanceServiceImpl extends ServiceImpl<EtfFiveDim
 
     private void applySort(QueryWrapper<EtfFiveDimensionResonance> wrapper, Map<String, Object> filters) {
         if (filters == null) {
-            wrapper.orderByDesc("last_triggered_date").orderByDesc("trade_date").orderByDesc("id");
+            wrapper.orderByDesc("trade_date").orderByDesc("last_triggered_date").orderByDesc("id");
             return;
         }
 
         String sortField = String.valueOf(filters.getOrDefault("sortField", "")).trim();
         String sortOrder = String.valueOf(filters.getOrDefault("sortOrder", "")).trim();
         if (sortField.isEmpty() || sortOrder.isEmpty()) {
-            wrapper.orderByDesc("last_triggered_date").orderByDesc("trade_date").orderByDesc("id");
+            wrapper.orderByDesc("trade_date").orderByDesc("last_triggered_date").orderByDesc("id");
             return;
         }
 
@@ -169,7 +174,7 @@ public class EtfFiveDimensionResonanceServiceImpl extends ServiceImpl<EtfFiveDim
                 wrapper.orderBy(true, asc, "last_triggered_date");
                 break;
             default:
-                wrapper.orderByDesc("last_triggered_date").orderByDesc("trade_date").orderByDesc("id");
+                wrapper.orderByDesc("trade_date").orderByDesc("last_triggered_date").orderByDesc("id");
         }
     }
 

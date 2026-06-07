@@ -182,15 +182,96 @@ onMounted(() => {
 </script>
 
 <style scoped>
+:deep(.el-card) {
+  border-radius: 12px;
+  border: 1px solid #e4e7ed;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+}
+
 .mb12 {
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
+
+.mb12 :deep(.el-card__body) {
+  padding: 16px 20px;
+}
+
+.mb12 :deep(.el-form--inline .el-form-item) {
+  margin-bottom: 0;
+}
+
 .toolbar {
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
+
+.toolbar :deep(.el-button) {
+  border-radius: 8px;
+}
+
 .pager {
   display: flex;
   justify-content: flex-end;
-  margin-top: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #f1f5f9;
+}
+
+:deep(.el-table) {
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+:deep(.el-table th.el-table__cell) {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 12px 0;
+}
+
+:deep(.el-table td.el-table__cell) {
+  padding: 12px 0;
+  color: #334155;
+}
+
+:deep(.el-table tr) {
+  transition: background 0.2s ease;
+}
+
+:deep(.el-table tr:hover td.el-table__cell) {
+  background: #f0fdfa;
+}
+
+:deep(.el-dialog) {
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+:deep(.el-dialog__header) {
+  background: linear-gradient(135deg, #f0fdfa 0%, #ffffff 100%);
+  border-bottom: 1px solid #e4e7ed;
+  padding: 18px 20px;
+  margin-right: 0;
+}
+
+:deep(.el-dialog__title) {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+:deep(.el-dialog__body) {
+  padding: 24px 20px;
+}
+
+:deep(.el-form-item__label) {
+  font-weight: 500;
+  color: #475569;
+}
+
+:deep(.el-pagination) {
+  font-weight: 500;
 }
 </style>

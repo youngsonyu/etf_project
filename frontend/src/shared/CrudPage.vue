@@ -96,7 +96,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const props = defineProps({
@@ -148,6 +148,18 @@ const sortState = reactive({ field: '', order: '' })
 normalizedSearchItems.value.forEach((item) => {
   searchForm[item.prop] = item.defaultValue ?? ''
 })
+
+watch(
+  () => normalizedSearchItems.value.map((i) => i.defaultValue).join(','),
+  () => {
+    normalizedSearchItems.value.forEach((item) => {
+      if (item.defaultValue !== undefined && (searchForm[item.prop] === '' || searchForm[item.prop] === undefined)) {
+        searchForm[item.prop] = item.defaultValue
+      }
+    })
+  },
+  { immediate: true }
+)
 
 const formColumns = computed(() => normalizedColumns.value.filter((c) => c.prop !== 'id'))
 

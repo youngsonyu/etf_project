@@ -1973,7 +1973,8 @@ def main():
         return
 
     # 7. 开始批次记录
-    batch_no = extractor.batch_no
+    # 使用最新交易日期作为批次号前缀，确保 etl_batch_no 与实际交易日期一致
+    batch_no = f"{end_date}_{datetime.now().strftime('%H%M%S')}"
     if not batch_manager.start_batch(batch_no, start_date, end_date):
         print("[ERROR] 无法开始新批次，可能存在未完成的批次")
         logout_amazingdata()

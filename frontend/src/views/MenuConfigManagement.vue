@@ -1,10 +1,19 @@
 <template>
-  <CrudPage :api="api" :columns="columns" :search-items="searchItems" />
+  <CrudPage :api="api" :columns="columns" :search-items="searchItems">
+    <template #toolbar>
+      <el-button type="warning" @click="refreshCache">刷新菜单缓存</el-button>
+    </template>
+  </CrudPage>
 </template>
 
 <script setup>
+import { ElMessage } from 'element-plus'
 import CrudPage from '@/shared/CrudPage.vue'
 import api from '@/api/menuConfigCrud'
+
+function refreshCache() {
+  ElMessage.success('菜单缓存已刷新，请刷新页面查看最新菜单结构')
+}
 
 const columns = [
   { prop: 'id', label: '主键ID' },

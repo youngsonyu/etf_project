@@ -3,16 +3,22 @@
     <el-card class="control-card">
       <div class="control-row">
         <div class="control-block">
-          <div class="control-label">时间范围（必须是连续两个交易日）</div>
+          <div class="control-label">对比日期一</div>
           <el-date-picker
-            v-model="dateRange"
-            type="daterange"
+            v-model="datePoint1"
             value-format="YYYY-MM-DD"
-            range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            unlink-panels
-            class="date-range"
+            placeholder="选择日期"
+            class="date-single"
+          />
+        </div>
+
+        <div class="control-block">
+          <div class="control-label">对比日期二</div>
+          <el-date-picker
+            v-model="datePoint2"
+            value-format="YYYY-MM-DD"
+            placeholder="选择日期"
+            class="date-single"
           />
         </div>
 
@@ -38,7 +44,7 @@
       </div>
 
       <el-alert
-        :title="`说明：系统自动识别日期范围内最近两个交易日进行对比。当日流向差值 = 今日 - 昨日，红色表示增加，绿色表示减少。`"
+        :title="alertText"
         type="info"
         :closable="false"
         show-icon
@@ -52,21 +58,21 @@
           <div class="chart-subtitle">{{ chartSubtitle }}</div>
         </div>
         <div class="chart-badges">
-          <span class="badge badge-red">📈 增加：红色</span>
-          <span class="badge badge-green">📉 减少：绿色</span>
+          <span class="badge badge-red">对比日期一：红色</span>
+          <span class="badge badge-green">对比日期二：绿色</span>
         </div>
         <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
           <span style="font-size:13px;color:#64748b;">排序：</span>
-          <el-select v-model="sortType" size="small" style="width:260px" @change="renderChart">
-            <el-option label="{t-1日}当日金额" value="t_minus_1_daily_desc" />
-            <el-option label="{t日}当日金额" value="t_daily_desc" />
-            <el-option label="{t日}-{t-1日}当日金额差值" value="daily_diff_desc" />
+          <el-select v-model="sortType" size="small" style="width:200px" @change="renderChart">
+            <el-option label="对比日期一金额" value="point1_desc" />
+            <el-option label="对比日期二金额" value="point2_desc" />
+            <el-option label="变化量绝对值" value="diff_abs_desc" />
           </el-select>
         </div>
       </div>
 
       <div v-if="!hasData" class="empty-state">
-        <el-empty description="请选择时间范围并点击生成图表" />
+        <el-empty description="请选择两个时间点并点击生成图表" />
       </div>
 
       <div v-else ref="chartRef" class="chart-body" />
@@ -81,15 +87,16 @@ import * as echarts from 'echarts'
 import api from '@/api/etfFundFlowChart'
 import { classifyView } from '@/utils/etfFlowClassification'
 
-const dateRange = ref([])
+const datePoint1 = ref('')
+const datePoint2 = ref('')
 const viewMode = ref('eightDim')
 const flowMetric = ref('daily')
 const loading = ref(false)
-const yesterdayData = ref([])
-const todayData = ref([])
+const dataPoint1 = ref([])
+const dataPoint2 = ref([])
 const chartRef = ref(null)
 let chartInstance = null
-const sortType = ref('t_minus_1_daily_desc')
+const sortType = ref('point1_desc')
 
 const resizeHandler = () => {
   if (chartInstance) {
@@ -97,15 +104,28 @@ const resizeHandler = () => {
   }
 }
 
-const hasData = computed(() => yesterdayData.value.length > 0 && todayData.value.length > 0)
+const hasData = computed(() => dataPoint1.value.length > 0 && dataPoint2.value.length > 0)
 
 const chartSubtitle = computed(() => {
-  if (!yesterdayData.value.length || !todayData.value.length) {
+  if (!hasData.value) {
     return '未生成数据'
   }
-  const metricLabel = flowMetric.value === 'daily' ? '当日流向' : '累计流向'
-  const viewLabel = viewMode.value === 'eightDim' ? '八维分类' : '产业细分'
-  return `${viewLabel} - ${metricLabel}差值分析`
+  const metricLabel = {
+    daily: '当日流向',
+    cumulative: '累计流向'
+  }[flowMetric.value]
+  const viewLabel = {
+    eightDim: '八维分类',
+    industry: '产业细分'
+  }[viewMode.value]
+  return `${viewLabel} - ${metricLabel}对比 (${datePoint1.value} vs ${datePoint2.value})`
+})
+
+const alertText = computed(() => {
+  const base = '说明：选择两个任意时间点，系统将展示该两个时间点的资金流向对比柱状图，红色代表对比日期一，绿色代表对比日期二，便于直观对比。'
+  const cumulativeNote = flowMetric.value === 'cumulative' ? ' 累计流向统计金额起始时间为2024年9月24日起累计。' : ''
+  const disclaimer = ' 该图表数据由基金份额和每日ETF收盘价计算，存在一定微小误差，图表仅供参考。'
+  return base + cumulativeNote + disclaimer
 })
 
 function ensureChart() {
@@ -129,9 +149,8 @@ function summarizeByCategory(dataList, viewMode) {
     }
 
     const etfCode = row.etfCode || row.etf_code || ''
-    // 金额单位转换为万元
-    const dailyFlow = (Number(row.fundFlow || row.fund_flow || 0) || 0) / 10000
-    const cumulativeFlow = (Number(row.cumulativeFlow || row.cumulative_flow || 0) || 0) / 10000
+    const dailyFlow = Number(row.fundFlow || row.fund_flow || 0) / 10000
+    const cumulativeFlow = Number(row.cumulativeFlow || row.cumulative_flow || 0) / 10000
 
     const current = summaryMap.get(category) || {
       category,
@@ -160,69 +179,56 @@ function renderChart() {
     return
   }
 
-  const yesterdaySummary = summarizeByCategory(yesterdayData.value, viewMode.value)
-  const todaySummary = summarizeByCategory(todayData.value, viewMode.value)
+  const summary1 = summarizeByCategory(dataPoint1.value, viewMode.value)
+  const summary2 = summarizeByCategory(dataPoint2.value, viewMode.value)
 
-  // 合并两天的分类，构建diff数据
   const allCategoriesSet = new Set([
-    ...yesterdaySummary.map((item) => item.category),
-    ...todaySummary.map((item) => item.category)
+    ...summary1.map((item) => item.category),
+    ...summary2.map((item) => item.category)
   ])
 
-  const yesterdayMap = new Map(yesterdaySummary.map((item) => [item.category, item]))
-  const todayMap = new Map(todaySummary.map((item) => [item.category, item]))
+  const map1 = new Map(summary1.map((item) => [item.category, item]))
+  const map2 = new Map(summary2.map((item) => [item.category, item]))
 
-  let diffData = Array.from(allCategoriesSet)
+  const metricKey = {
+    daily: 'dailyFlow',
+    cumulative: 'cumulativeFlow'
+  }[flowMetric.value]
+
+  const chartData = Array.from(allCategoriesSet)
     .map((category) => {
-      const yItem = yesterdayMap.get(category) || { dailyFlow: 0, cumulativeFlow: 0, etfCount: 0 }
-      const tItem = todayMap.get(category) || { dailyFlow: 0, cumulativeFlow: 0, etfCount: 0 }
-
-      const metric = flowMetric.value === 'daily' ? 'dailyFlow' : 'cumulativeFlow'
-      const yesterdayVal = yItem[metric] || 0
-      const todayVal = tItem[metric] || 0
-      const diffVal = todayVal - yesterdayVal
-      const etfCount = Math.max(yItem.etfCount || 0, tItem.etfCount || 0)
-
+      const item1 = map1.get(category) || { dailyFlow: 0, cumulativeFlow: 0, etfCount: 0 }
+      const item2 = map2.get(category) || { dailyFlow: 0, cumulativeFlow: 0, etfCount: 0 }
       return {
         category,
-        yesterdayVal,
-        todayVal,
-        diffVal,
-        etfCount
+        value1: item1[metricKey] || 0,
+        value2: item2[metricKey] || 0,
+        diff: (item2[metricKey] || 0) - (item1[metricKey] || 0),
+        etfCount: Math.max(item1.etfCount || 0, item2.etfCount || 0)
       }
     })
 
-  // 排序逻辑
-  if (sortType.value === 't_minus_1_daily_desc') {
-    diffData.sort((a, b) => b.yesterdayVal - a.yesterdayVal)
-  } else if (sortType.value === 't_daily_desc') {
-    diffData.sort((a, b) => b.todayVal - a.todayVal)
-  } else if (sortType.value === 'daily_diff_desc') {
-    diffData.sort((a, b) => b.diffVal - a.diffVal)
+  if (sortType.value === 'point1_desc') {
+    chartData.sort((a, b) => b.value1 - a.value1)
+  } else if (sortType.value === 'point2_desc') {
+    chartData.sort((a, b) => b.value2 - a.value2)
+  } else if (sortType.value === 'diff_abs_desc') {
+    chartData.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
   }
 
-  const categories = diffData.map((item) => item.category)
-  const diffValues = diffData.map((item) => item.diffVal)
-  const yesterdayValues = diffData.map((item) => item.yesterdayVal)
-  const todayValues = diffData.map((item) => item.todayVal)
-  const etfCounts = diffData.map((item) => item.etfCount)
+  const categories = chartData.map((item) => item.category)
+  const values1 = chartData.map((item) => item.value1)
+  const values2 = chartData.map((item) => item.value2)
+  const etfCounts = chartData.map((item) => item.etfCount)
 
-  const barColors = diffValues.map((val) => (val >= 0 ? '#ef4444' : '#10b981'))
-  const maxVal = Math.max(...diffValues, 1)
-  const minVal = Math.min(...diffValues, -1)
+  const maxVal = Math.max(...values1, ...values2, 1)
 
-  const metricLabel = flowMetric.value === 'daily' ? '当日流向' : '累计流向'
+  const metricLabel = { daily: '当日流向', cumulative: '累计流向' }[flowMetric.value]
 
   instance.setOption(
     {
       backgroundColor: '#fff',
       animationDuration: 600,
-      title: {
-        text: `${metricLabel}变化差值 (今日-昨日)`,
-        left: 'center',
-        top: 0,
-        textStyle: { fontSize: 14, fontWeight: 'bold' }
-      },
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
@@ -231,52 +237,71 @@ function renderChart() {
             return ''
           }
           const idx = params[0].dataIndex
-          const diff = diffValues[idx]
-          const trend = diff >= 0 ? '📈 净流入增加 / 流出减少' : '📉 净流入减少 / 流出扩大'
+          const item = chartData[idx]
           return [
-            `<strong>${categories[idx]}</strong>`,
-            `ETF数量：${etfCounts[idx]} 只`,
-            `昨日${metricLabel}：${yesterdayValues[idx].toFixed(2)} 万元`,
-            `今日${metricLabel}：${todayValues[idx].toFixed(2)} 万元`,
-            `变化：${diff >= 0 ? '+' : ''}${diff.toFixed(2)} 万元`,
-            trend
+            `<strong>${item.category}</strong>`,
+            `ETF数量：${item.etfCount} 只`,
+            `对比日期一：${item.value1.toFixed(2)} 万元`,
+            `对比日期二：${item.value2.toFixed(2)} 万元`,
+            `变化量：${item.diff >= 0 ? '+' : ''}${item.diff.toFixed(2)} 万元`
           ].join('<br/>')
         }
       },
       legend: {
-        data: ['资金变化'],
+        data: ['对比日期一', '对比日期二'],
         top: 12,
-        right: 24
+        right: 24,
+        textStyle: { fontSize: 12 }
       },
-      grid: { left: 52, right: 58, top: 76, bottom: 48, containLabel: true },
+      grid: { left: 60, right: 58, top: 76, bottom: 48, containLabel: true },
       xAxis: {
         type: 'category',
         data: categories,
-        axisLabel: { interval: 0, rotate: categories.length > 7 ? 26 : 0 }
+        axisLabel: { interval: 0, rotate: categories.length > 7 ? 26 : 0 },
+        name: '分类',
+        nameLocation: 'middle',
+        nameGap: 30
       },
       yAxis: {
         type: 'value',
-        name: `${metricLabel}变化(万元)`,
+        name: `${metricLabel}(万元)`,
         axisLabel: { formatter: (value) => `${value.toFixed(0)}万` },
         splitLine: { lineStyle: { type: 'dashed', color: '#dbe4f0' } },
-        min: minVal < 0 ? minVal * 1.15 : -10,
-        max: maxVal > 0 ? maxVal * 1.15 : 10
+        max: maxVal * 1.2
       },
       series: [
         {
-          name: '资金变化',
+          name: '对比日期一',
           type: 'bar',
-          data: diffValues,
+          data: values1,
           itemStyle: {
-            color: (params) => barColors[params.dataIndex],
-            borderRadius: [8, 8, 0, 0]
+            color: '#ef4444',
+            borderRadius: [4, 4, 0, 0]
           },
-          barWidth: '60%',
+          barWidth: '28%',
           label: {
             show: true,
             position: 'top',
-            formatter: (p) => (p.value === 0 ? '持平' : (p.value > 0 ? '+' : '') + p.value.toFixed(0) + '万'),
-            fontSize: 9
+            formatter: (p) => (p.value === 0 ? '0' : p.value.toFixed(0) + '万'),
+            fontSize: 9,
+            color: '#991b1b'
+          }
+        },
+        {
+          name: '对比日期二',
+          type: 'bar',
+          data: values2,
+          itemStyle: {
+            color: '#10b981',
+            borderRadius: [4, 4, 0, 0]
+          },
+          barWidth: '28%',
+          label: {
+            show: true,
+            position: 'top',
+            formatter: (p) => (p.value === 0 ? '0' : p.value.toFixed(0) + '万'),
+            fontSize: 9,
+            color: '#166534'
           }
         }
       ]
@@ -286,30 +311,31 @@ function renderChart() {
 }
 
 async function generateChart() {
-  if (!Array.isArray(dateRange.value) || dateRange.value.length !== 2) {
-    ElMessage.warning('请选择开始日期和结束日期')
+  if (!datePoint1.value || !datePoint2.value) {
+    ElMessage.warning('请选择两个时间点')
     return
   }
 
-  const [startDate, endDate] = dateRange.value
+  if (datePoint1.value === datePoint2.value) {
+    ElMessage.warning('请选择两个不同的时间点')
+    return
+  }
+
   loading.value = true
   try {
-    const res = await api.flowComparison({ startDate, endDate })
-    const payload = res.data || {}
-    if (payload.error) {
-      ElMessage.warning(payload.error)
-      return
-    }
-    yesterdayData.value = payload.yesterdayData || []
-    todayData.value = payload.todayData || []
+    const res1 = await api.getFlowDataByDate(datePoint1.value)
+    const res2 = await api.getFlowDataByDate(datePoint2.value)
+
+    dataPoint1.value = res1.data || []
+    dataPoint2.value = res2.data || []
+
     await nextTick()
     renderChart()
+
     if (!hasData.value) {
       ElMessage.warning('该时间范围内没有可用于生成图表的数据')
     } else {
-      ElMessage.success(
-        `图表已生成 (昨日: ${payload.yesterday}, 今日: ${payload.today})`
-      )
+      ElMessage.success(`图表已生成 (${datePoint1.value} vs ${datePoint2.value})`)
     }
   } catch (error) {
     ElMessage.error(error?.message || '生成图表失败')
@@ -371,8 +397,8 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-.date-range {
-  min-width: 320px;
+.date-single {
+  width: 160px;
 }
 
 .mode-group {
@@ -445,7 +471,7 @@ onBeforeUnmount(() => {
     flex-direction: column;
   }
 
-  .date-range {
+  .date-single {
     min-width: 100%;
   }
 

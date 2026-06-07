@@ -1,19 +1,25 @@
-﻿<template>
+<template>
   <CrudPage :api="api" :columns="columns" :search-items="searchItems" />
 </template>
 
 <script setup>
+import { computed, onMounted, ref } from 'vue'
 import CrudPage from '@/shared/CrudPage.vue'
 import api from '@/api/etfMarketKline'
+import etlProgressApi from '@/api/etlProgress'
 
-function getYesterday() {
-  const date = new Date()
-  date.setDate(date.getDate() - 1)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
+const defaultTradeDate = ref('')
+
+onMounted(async () => {
+  try {
+    const res = await etlProgressApi.currentTradeDate()
+    const raw = res?.data
+    if (raw && /^\d{8}$/.test(String(raw))) {
+      const s = String(raw)
+      defaultTradeDate.value = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+    }
+  } catch {}
+})
 
 const columns = [
   { prop: 'id', label: '主键ID', sortable: false },
@@ -24,7 +30,8 @@ const columns = [
   { prop: 'closePrice', label: '收盘价' },
   { prop: 'volume', label: '成交量' }
 ]
-const searchItems = [
+
+const searchItems = computed(() => [
   { prop: 'etfCode', label: 'ETF代码', type: 'input' },
   { prop: 'etfName', label: 'ETF简称', type: 'input' },
   {
@@ -40,6 +47,6 @@ const searchItems = [
       { label: 'season', value: 'season' }
     ]
   },
-  { prop: 'tradeDate', label: 'K线时间', type: 'date', defaultValue: getYesterday() }
-]
+  { prop: 'tradeDate', label: 'K线时间', type: 'date', defaultValue: defaultTradeDate.value }
+])
 </script>

@@ -39,8 +39,8 @@ import java.util.Map;
 @Service
 public class EtfFiveDimensionReportGenerationService {
 
-    private static final String MODEL = "qwen-max";
-    private static final String DASHSCOPE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+    private static final String MODEL = "MiniMax-M2.7";
+    private static final String MINIMAX_URL = "https://api.minimaxi.com/anthropic/v1/chat/completions";
     private static final int ROW_LIMIT = 8;
     private static final int SYSTEM_PROMPT_MAX_CHARS = 300;
     private static final int USER_CONTENT_MAX_CHARS = 6000;
@@ -273,7 +273,7 @@ public class EtfFiveDimensionReportGenerationService {
 
         try {
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(DASHSCOPE_URL))
+                    .uri(URI.create(MINIMAX_URL))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(body.toJSONString()))

@@ -168,6 +168,17 @@ public class EtfFundFlowSummaryServiceImpl extends ServiceImpl<EtfFundFlowSummar
 		return result;
 	}
 
+	@Override
+	public List<EtfFundFlowSummary> getDataByDate(String tradeDate) {
+		LocalDate date = parseDate(tradeDate);
+		if (date == null) {
+			return Collections.emptyList();
+		}
+		List<EtfFundFlowSummary> rows = listByDateRange(tradeDate, tradeDate);
+		enrichEtfNameFromMaster(rows);
+		return rows;
+	}
+
 	private void enrichEtfNameFromMaster(List<EtfFundFlowSummary> rows) {
 		if (rows == null || rows.isEmpty()) {
 			return;
@@ -198,14 +209,14 @@ public class EtfFundFlowSummaryServiceImpl extends ServiceImpl<EtfFundFlowSummar
 
 	private void applySort(QueryWrapper<EtfFundFlowSummary> wrapper, Map<String, Object> filters) {
 		if (filters == null) {
-			wrapper.orderByDesc("fund_flow").orderByDesc("trade_date").orderByAsc("id");
+			wrapper.orderByDesc("trade_date").orderByDesc("fund_flow").orderByAsc("id");
 			return;
 		}
 
 		String sortField = String.valueOf(filters.getOrDefault("sortField", "")).trim();
 		String sortOrder = String.valueOf(filters.getOrDefault("sortOrder", "")).trim();
 		if (sortField.isEmpty() || sortOrder.isEmpty()) {
-			wrapper.orderByDesc("fund_flow").orderByDesc("trade_date").orderByAsc("id");
+			wrapper.orderByDesc("trade_date").orderByDesc("fund_flow").orderByAsc("id");
 			return;
 		}
 
@@ -233,7 +244,7 @@ public class EtfFundFlowSummaryServiceImpl extends ServiceImpl<EtfFundFlowSummar
 				wrapper.orderBy(true, asc, "change_reason");
 				break;
 			default:
-				wrapper.orderByDesc("fund_flow").orderByDesc("trade_date").orderByAsc("id");
+				wrapper.orderByDesc("trade_date").orderByDesc("fund_flow").orderByAsc("id");
 		}
 	}
 

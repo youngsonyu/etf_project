@@ -21,4 +21,11 @@ public interface EtfFundFlowSummaryService extends BaseCrudService<EtfFundFlowSu
      * @return Map with "yesterday" and "today" lists, or error message
      */
     Map<String, Object> getConsecutiveTradingDayData(String startDate, String endDate);
+
+    /**
+     * Get fund flow data for a single date
+     * @param tradeDate The trading date (yyyy-MM-dd)
+     * @return List of fund flow data for the date
+     */
+    List<EtfFundFlowSummary> getDataByDate(String tradeDate);
 }

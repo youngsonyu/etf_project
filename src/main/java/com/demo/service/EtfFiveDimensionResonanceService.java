@@ -14,5 +14,7 @@ public interface EtfFiveDimensionResonanceService extends BaseCrudService<EtfFiv
 
     String getLatestTradeDate();
 
+    String getLastTriggeredDate();
+
     Map<String, Object> refreshLatestTradeDate();
 }

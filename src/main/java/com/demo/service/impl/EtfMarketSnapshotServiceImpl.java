@@ -8,4 +8,8 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class EtfMarketSnapshotServiceImpl extends ServiceImpl<EtfMarketSnapshotMapper, EtfMarketSnapshot> implements EtfMarketSnapshotService {
+    @Override
+    public String getDefaultSortColumn() {
+        return "trade_time";
+    }
 }

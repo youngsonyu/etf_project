@@ -2,7 +2,7 @@
   <router-view v-if="isLoginPage" />
   <el-container v-else style="height: 100vh">
     <el-aside width="240px" class="app-sidebar">
-      <div class="logo">ETF数据分析平台</div>
+      <div class="logo">ETF量化分析平台</div>
       <el-menu router :default-active="$route.path" class="menu">
         <template v-for="item in treeMenus" :key="item.menuCode">
           <el-sub-menu v-if="childrenMap[item.menuCode] && childrenMap[item.menuCode].length" :index="`group-${item.menuCode}`">
@@ -53,8 +53,8 @@ const routeMap = {
   dashboard: '/dashboard',
   etf_fund_flow_summary: '/etf_fund_flow_summary',
   etf_fund_flow_chart: '/etf_fund_flow_chart',
-  etf_fund_iopv: '/etf_fund_iopv',
   etf_fund_share: '/etf_fund_share',
+  etf_fund_iopv: '/etf_fund_iopv',
   etf_market_kline: '/etf_market_kline',
   etf_market_snapshot: '/etf_market_snapshot',
   etf_pcf_constituent: '/etf_pcf_constituent',
@@ -67,22 +67,41 @@ const routeMap = {
   menu_config: '/menu_config',
   sys_param: '/sys_param',
   etl_batch_status: '/etl_batch_status',
-  etl_checkpoint: '/etl_checkpoint'
+  etl_checkpoint: '/etl_checkpoint',
+  change_password: '/change-password'
 }
 
-const nonClickableGroupCodes = new Set(['system'])
+const nonClickableGroupCodes = new Set(['system', 'etf_regular', 'etf_quant', 'etf_ai'])
 
 const parentOverride = {
   trade_calendar: 'system',
   menu_config: 'system',
   sys_param: 'system',
   etl_batch_status: 'system',
-  etl_checkpoint: 'system'
+  etl_checkpoint: 'system',
+  dashboard: 'etf_home',
+  etf_fund_flow_summary: 'etf_regular',
+  etf_fund_flow_chart: 'etf_regular',
+  etf_security_master: 'etf_regular',
+  etf_market_snapshot: 'etf_regular',
+  etf_market_kline: 'etf_regular',
+  etf_pcf_info: 'etf_regular',
+  etf_pcf_constituent: 'etf_regular',
+  etf_fund_share: 'etf_regular',
+  etf_fund_iopv: 'etf_regular',
+  etf_ta_indicator: 'etf_regular',
+  etf_five_dimension_resonance: 'etf_quant',
+  etf_five_dimension_report: 'etf_quant',
+  etf_ai_assistant: 'etf_ai',
+  user_management: 'system'
 }
 
 const orderOverride = {
-  dashboard: 1,
-  system: 2
+  etf_home: 1,
+  etf_regular: 2,
+  etf_quant: 3,
+  etf_ai: 4,
+  system: 5
 }
 
 const normalUserAllowedMenuCodes = new Set([
@@ -93,15 +112,19 @@ const normalUserAllowedMenuCodes = new Set([
   'etf_five_dimension_resonance',
   'etf_fund_flow_chart',
   'etf_ai_assistant',
-  'etf_market_kline'
+  'etf_market_kline',
+  'change_password'
 ])
 
 const isNormalUser = computed(() => localStorage.getItem('etf_login_type') === 'user')
 
 const fallbackMenus = [
+  { menuCode: 'etf_home', menuName: '首页', path: null },
   { menuCode: 'dashboard', menuName: '首页', path: '/dashboard' },
+  { menuCode: 'etf_regular', menuName: 'ETF常规指标', path: null },
+  { menuCode: 'etf_fund_flow_summary', menuName: 'ETF资金流向', path: '/etf_fund_flow_summary' },
+  { menuCode: 'etf_fund_flow_chart', menuName: 'ETF资金流向图表', path: '/etf_fund_flow_chart' },
   { menuCode: 'etf_security_master', menuName: 'ETF基础信息', path: '/etf_security_master' },
-  { menuCode: 'trade_calendar', menuName: '交易日历', path: '/trade_calendar' },
   { menuCode: 'etf_market_snapshot', menuName: 'ETF行情快照', path: '/etf_market_snapshot' },
   { menuCode: 'etf_market_kline', menuName: 'K线数据', path: '/etf_market_kline' },
   { menuCode: 'etf_pcf_info', menuName: 'ETF PCF头信息', path: '/etf_pcf_info' },
@@ -109,15 +132,19 @@ const fallbackMenus = [
   { menuCode: 'etf_fund_share', menuName: 'ETF基金份额', path: '/etf_fund_share' },
   { menuCode: 'etf_fund_iopv', menuName: 'ETF IOPV', path: '/etf_fund_iopv' },
   { menuCode: 'etf_ta_indicator', menuName: 'ETF技术指标', path: '/etf_ta_indicator' },
-  { menuCode: 'etf_fund_flow_summary', menuName: 'ETF资金流向', path: '/etf_fund_flow_summary' },
-  { menuCode: 'etf_fund_flow_chart', menuName: 'ETF资金流向图表', path: '/etf_fund_flow_chart' },
-  { menuCode: 'etf_five_dimension_resonance', menuName: 'ETF五维共振数据分析', path: '/etf_five_dimension_resonance' },
-  { menuCode: 'etf_five_dimension_report', menuName: 'ETF五维共振报告', path: '/etf_five_dimension_report' },
-  { menuCode: 'etl_batch_status', menuName: 'ETL跑批状态', path: '/etl_batch_status' },
-  { menuCode: 'etl_checkpoint', menuName: 'ETL跑批检查点', path: '/etl_checkpoint' },
+  { menuCode: 'etf_quant', menuName: 'ETF量化模型', path: null },
+  { menuCode: 'etf_five_dimension_resonance', menuName: 'ETF量化数据分析', path: '/etf_five_dimension_resonance' },
+  { menuCode: 'etf_five_dimension_report', menuName: 'ETF量化报告', path: '/etf_five_dimension_report' },
+  { menuCode: 'etf_ai', menuName: 'ETF智能助手', path: null },
+  { menuCode: 'etf_ai_assistant', menuName: 'ETF智能助手', path: '/etf_ai_assistant' },
+  { menuCode: 'system', menuName: '系统管理', path: '/system' },
+  { menuCode: 'trade_calendar', menuName: '交易日历', path: '/trade_calendar' },
   { menuCode: 'menu_config', menuName: '菜单配置', path: '/menu_config' },
   { menuCode: 'sys_param', menuName: '参数配置', path: '/sys_param' },
-  { menuCode: 'system', menuName: '系统管理', path: '/system' }
+  { menuCode: 'etl_batch_status', menuName: 'ETL跑批状态', path: '/etl_batch_status' },
+  { menuCode: 'etl_checkpoint', menuName: 'ETL跑批检查点', path: '/etl_checkpoint' },
+  { menuCode: 'change_password', menuName: '修改密码', path: '/change-password' },
+  { menuCode: 'user_management', menuName: '用户管理', path: '/user_management' }
 ]
 
 const alwaysVisibleMenus = [
@@ -223,9 +250,21 @@ async function loadMenus() {
     seen.add(item.menuCode)
     deduped.push(item)
   })
-  menus.value = isNormalUser.value
-    ? deduped.filter((item) => normalUserAllowedMenuCodes.has(item.menuCode))
-    : deduped
+  if (isNormalUser.value) {
+    const parentsWithAllowedChildren = new Set()
+    deduped.forEach((item) => {
+      if (normalUserAllowedMenuCodes.has(item.menuCode) && item.parentCode) {
+        parentsWithAllowedChildren.add(item.parentCode)
+      }
+    })
+    menus.value = deduped.filter(
+      (item) =>
+        normalUserAllowedMenuCodes.has(item.menuCode) ||
+        parentsWithAllowedChildren.has(item.menuCode)
+    )
+  } else {
+    menus.value = deduped
+  }
 }
 
 onMounted(() => {
@@ -248,44 +287,76 @@ watch(
 
 <style scoped>
 .app-sidebar {
-  border-right: 1px solid #ebeef5;
-  background: linear-gradient(180deg, #f9fafb, #f3f5f7);
+  border-right: 1px solid #e4e7ed;
+  background: linear-gradient(180deg, #fafbfc 0%, #f1f3f5 100%);
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.04);
 }
 .logo {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
-  padding: 18px;
+  padding: 20px 18px;
   color: #0f766e;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #e4e7ed;
+  background: linear-gradient(135deg, #f0fdfa 0%, #ffffff 100%);
 }
 .app-header {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   background: #ffffff;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid #e4e7ed;
+  padding: 0 20px;
+  height: 56px;
 }
 
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 
 .username {
   font-size: 14px;
-  color: #0f172a;
+  color: #1e293b;
   font-weight: 600;
+  padding: 6px 12px;
+  background: #f1f5f9;
+  border-radius: 6px;
 }
 
 .trade-date {
-  font-size: 14px;
-  color: #334155;
+  font-size: 13px;
+  color: #64748b;
+  padding: 6px 12px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #e4e7ed;
 }
 
 .app-main {
-  background: #f7f8fa;
+  background: #f8fafc;
+  padding: 16px 20px;
 }
 .menu {
   border-right: none;
+  background: transparent;
+}
+
+.menu :deep(.el-menu-item),
+.menu :deep(.el-sub-menu__title) {
+  border-radius: 8px;
+  margin: 2px 8px;
+  padding-left: 16px !important;
+}
+
+.menu :deep(.el-menu-item:hover),
+.menu :deep(.el-sub-menu__title:hover) {
+  background: #e0f2fe;
+}
+
+.menu :deep(.el-menu-item.is-active) {
+  background: linear-gradient(135deg, #0f766e 0%, #0891b2 100%);
+  color: #ffffff;
 }
 </style>

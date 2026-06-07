@@ -9,4 +9,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class EtfFiveDimensionReportServiceImpl extends ServiceImpl<EtfFiveDimensionReportMapper, EtfFiveDimensionReport>
         implements EtfFiveDimensionReportService {
+    @Override
+    public String getDefaultSortColumn() {
+        return "publish_time";
+    }
 }

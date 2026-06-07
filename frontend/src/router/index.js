@@ -23,7 +23,9 @@ const routes = [
   { path: '/menu_config', name: 'MenuConfigManagement', component: () => import('../views/MenuConfigManagement.vue') },
   { path: '/sys_param', name: 'SysParamManagement', component: () => import('../views/SysParamManagement.vue') },
   { path: '/etl_batch_status', name: 'EtlBatchStatus', component: () => import('../views/EtlBatchStatus.vue') },
-  { path: '/etl_checkpoint', name: 'EtlCheckpoint', component: () => import('../views/EtlCheckpoint.vue') }
+  { path: '/etl_checkpoint', name: 'EtlCheckpoint', component: () => import('../views/EtlCheckpoint.vue') },
+  { path: '/change-password', name: 'ChangePassword', component: () => import('../views/ChangePassword.vue') },
+  { path: '/user_management', name: 'UserManagement', component: () => import('../views/UserManagement.vue') }
 ]
 
 const normalUserAllowedPaths = new Set([
@@ -35,7 +37,9 @@ const normalUserAllowedPaths = new Set([
   '/etf_fund_flow_chart',
   '/etf_ai_assistant',
   '/etf_market_kline',
-  '/user_menu'
+  '/user_menu',
+  '/change-password',
+  '/user_management'
 ])
 
 const router = createRouter({
@@ -55,12 +59,12 @@ router.beforeEach((to, from, next) => {
   }
 
   if (isLoggedIn && to.path === '/login') {
-    next(isNormalUser ? '/user_menu' : '/dashboard')
+    next('/dashboard')
     return
   }
 
   if (isLoggedIn && isNormalUser && !normalUserAllowedPaths.has(to.path)) {
-    next('/user_menu')
+    next('/dashboard?error=no_admin')
     return
   }
 

@@ -8,4 +8,8 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class EtfFundShareServiceImpl extends ServiceImpl<EtfFundShareMapper, EtfFundShare> implements EtfFundShareService {
+    @Override
+    public String getDefaultSortColumn() {
+        return "change_date";
+    }
 }

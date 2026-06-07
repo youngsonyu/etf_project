@@ -14,6 +14,11 @@ api.latestTradeDate = () => request({
 	method: 'get'
 })
 
+api.lastTriggeredDate = () => request({
+	url: '/api/etf_five_dimension_resonance/last-triggered-date',
+	method: 'get'
+})
+
 api.refreshLatest = () => request({
 	url: '/api/etf_five_dimension_resonance/refresh-latest',
 	method: 'post'

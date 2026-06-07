@@ -14,5 +14,12 @@ export default {
       method: 'post',
       data
     })
+  },
+  getFlowDataByDate(tradeDate) {
+    return request({
+      url: '/api/etf_fund_flow_summary/chart-flow-data',
+      method: 'get',
+      params: { tradeDate }
+    })
   }
 }

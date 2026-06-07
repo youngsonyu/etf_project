@@ -8,4 +8,8 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class EtfPcfConstituentServiceImpl extends ServiceImpl<EtfPcfConstituentMapper, EtfPcfConstituent> implements EtfPcfConstituentService {
+    @Override
+    public String getDefaultSortColumn() {
+        return "trading_day";
+    }
 }

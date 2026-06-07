@@ -34,6 +34,11 @@ public class EtfFiveDimensionResonanceController {
         return R.ok(baseService.getLatestTradeDate());
     }
 
+    @GetMapping("/last-triggered-date")
+    public R<String> lastTriggeredDate() {
+        return R.ok(baseService.getLastTriggeredDate());
+    }
+
     @PostMapping("/refresh-latest")
     public R<Map<String, Object>> refreshLatest() {
         return R.ok(baseService.refreshLatestTradeDate());

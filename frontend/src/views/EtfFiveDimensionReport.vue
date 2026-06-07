@@ -3,12 +3,20 @@
     <el-card class="mb12">
       <el-form :inline="true" :model="queryForm">
         <el-form-item label="标题">
-          <el-input v-model="queryForm.keyword" placeholder="请输入标题或发布人" clearable />
+          <el-input v-model="queryForm.keyword" placeholder="请输入标题或发布人" clearable style="width: 180px;" />
+        </el-form-item>
+        <el-form-item label="发布日期">
+          <el-input v-model="queryForm.publishDate" placeholder="如20250601" maxlength="8" clearable style="width: 120px;" />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="loadData">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
-          <el-button type="warning" :loading="generating" @click="generateLatestReport">生成最新交易日报告</el-button>
+          <el-tooltip v-if="isNormalUser" content="普通用户无管理员权限" placement="top">
+            <span>
+              <el-button type="warning" :loading="generating" disabled>生成最新交易日报告</el-button>
+            </span>
+          </el-tooltip>
+          <el-button v-else type="warning" :loading="generating" @click="generateLatestReport">生成最新交易日报告</el-button>
           <el-button type="success" @click="openCreate">发布报告</el-button>
         </el-form-item>
       </el-form>
@@ -22,9 +30,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="publishTime" label="发布时间" width="180" />
-        <el-table-column prop="publisher" label="发布人" width="120" />
+        <el-table-column label="发布人" width="120">
+          <template #default="scope">{{ formatPublisher(scope.row.publisher) }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="180" fixed="right">
-          <template #default="scope">
+          <template #default="scope" v-if="!isNormalUser">
             <el-button type="warning" link @click="openEdit(scope.row)">编辑</el-button>
             <el-button type="danger" link @click="deleteReport(scope.row)">删除</el-button>
           </template>
@@ -78,7 +88,7 @@
 
     <el-dialog v-model="viewerVisible" title="" width="980px">
       <h2 class="report-title">{{ viewerData.title }}</h2>
-      <div class="report-meta">发布时间：{{ viewerData.publishTime }} | 发布人：{{ viewerData.publisher }}</div>
+      <div class="report-meta">发布时间：{{ viewerData.publishTime }} | 发布人：{{ formatPublisher(viewerData.publisher) }}</div>
       <div class="md-body" v-html="viewerHtml"></div>
     </el-dialog>
   </div>
@@ -89,9 +99,35 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/etfFiveDimensionReport'
 import { renderMarkdown } from '@/utils/markdown'
+import etlProgressApi from '@/api/etlProgress'
+
+const isNormalUser = computed(() => localStorage.getItem('etf_login_type') === 'user')
+
+function formatPublisher(publisher) {
+  if (!publisher) return ''
+  const displayName = localStorage.getItem('etf_display_name') || ''
+  const account = localStorage.getItem('etf_account') || ''
+  if (displayName && publisher === account) {
+    return displayName
+  }
+  if (/^1[3-9]\d{9}$/.test(publisher)) {
+    return publisher.slice(0, 3) + '****' + publisher.slice(7)
+  }
+  return publisher
+}
 
 const tableData = ref([])
-const queryForm = reactive({ keyword: '' })
+const queryForm = reactive({ keyword: '', publishDate: '' })
+
+onMounted(async () => {
+  try {
+    const res = await etlProgressApi.currentTradeDate()
+    const raw = res?.data
+    if (raw && /^\d{8}$/.test(String(raw))) {
+      queryForm.publishDate = String(raw)
+    }
+  } catch {}
+})
 const pagination = reactive({ pageNum: 1, pageSize: 10, total: 0 })
 
 const editorVisible = ref(false)
@@ -119,7 +155,8 @@ async function loadData() {
   const res = await api.page({
     pageNum: pagination.pageNum,
     pageSize: pagination.pageSize,
-    keyword: queryForm.keyword
+    keyword: queryForm.keyword,
+    publishDate: queryForm.publishDate
   })
   const page = res?.data || {}
   tableData.value = page.records || []
@@ -130,6 +167,7 @@ async function loadData() {
 
 function resetQuery() {
   queryForm.keyword = ''
+  queryForm.publishDate = ''
   pagination.pageNum = 1
   loadData()
 }

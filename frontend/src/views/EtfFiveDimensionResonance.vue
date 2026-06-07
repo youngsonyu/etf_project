@@ -17,6 +17,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CrudPage from '@/shared/CrudPage.vue'
 import api from '@/api/etfFiveDimensionResonance'
+import etlProgressApi from '@/api/etlProgress'
 import { exportToCsv } from '@/utils/csvExport'
 
 const crudPageRef = ref()
@@ -28,9 +29,13 @@ const searchItemsVersion = ref(0)
 const isNormalUser = ref(localStorage.getItem('etf_login_type') === 'user')
 
 const columns = [
-  { prop: 'id', label: '主键ID' },
   { prop: 'etfCode', label: 'ETF代码' },
   { prop: 'etfName', label: 'ETF简称' },
+  { prop: 'isYesterdayTriggered', label: '昨日是否触发五维共振', valueMap: { 1: '是', 0: '否' } },
+  { prop: 'isTodayTriggered', label: '最新K线日是否触发五维共振', valueMap: { 1: '是', 0: '否' } },
+  { prop: 'firstTriggeredDateOfYear', label: '今年首次触发五维共振日期' },
+  { prop: 'previousTriggeredDate', label: '上次触发五维共振日期' },
+  { prop: 'lastTriggeredDate', label: '最后触发五维共振日期' },
   { prop: 'tradeTime', label: 'K线时间' },
   { prop: 'signalTrendLong', label: '综合趋势多头信号', valueMap: { 1: '是', 0: '否' } },
   { prop: 'signalMomentumLong', label: '综合动量多头信号', valueMap: { 1: '是', 0: '否' } },
@@ -70,12 +75,8 @@ const columns = [
   { prop: 'bollLower', label: 'BOLL下轨' },
   { prop: 'atr14', label: 'ATR14' },
   { prop: 'adx14', label: 'ADX14' },
-  { prop: 'isYesterdayTriggered', label: '昨日是否触发五维共振', valueMap: { 1: '是', 0: '否' } },
-  { prop: 'isTodayTriggered', label: '最新K线日是否触发五维共振', valueMap: { 1: '是', 0: '否' } },
-  { prop: 'firstTriggeredDateOfYear', label: '今年首次触发五维共振日期' },
-  { prop: 'previousTriggeredDate', label: '上次触发五维共振日期' },
-  { prop: 'lastTriggeredDate', label: '最后触发五维共振日期' },
-  { prop: 'source', label: '数据来源' }
+  { prop: 'source', label: '数据来源' },
+  { prop: 'id', label: '主键ID' }
 ]
 
 const searchItems = computed(() => [
@@ -114,9 +115,12 @@ const searchItems = computed(() => [
 ])
 
 async function loadLatestTradeDate() {
-  const res = await api.latestTradeDate()
-  latestTradeDate.value = res?.data || ''
-  lastTriggeredDefault.value = latestTradeDate.value || ''
+  const tradeDateRes = await etlProgressApi.currentTradeDate()
+  latestTradeDate.value = tradeDateRes?.data || ''
+  if (latestTradeDate.value) {
+    const s = String(latestTradeDate.value)
+    lastTriggeredDefault.value = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+  }
   searchItemsVersion.value += 1
 }
 
@@ -143,8 +147,12 @@ async function confirmRefreshLatest() {
       ElMessage.info(`${payload.tradeDate || latestTradeDate.value} 数据已存在，无需刷新`)
     } else {
       ElMessage.success(`刷新完成：${payload.tradeDate || latestTradeDate.value}，共更新 ${payload.inserted || 0} 条`)
+      if (latestTradeDate.value) {
+        const s = String(latestTradeDate.value)
+        lastTriggeredDefault.value = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+        searchItemsVersion.value += 1
+      }
     }
-    await loadLatestTradeDate()
     crudPageRef.value?.loadData()
   } catch (error) {
     if (error === 'cancel' || error === 'close') {

@@ -8,4 +8,8 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class EtfFundIopvServiceImpl extends ServiceImpl<EtfFundIopvMapper, EtfFundIopv> implements EtfFundIopvService {
+    @Override
+    public String getDefaultSortColumn() {
+        return "price_date";
+    }
 }

@@ -7,23 +7,27 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import CrudPage from '@/shared/CrudPage.vue'
 import api from '@/api/etfTaIndicator'
 import { exportToCsv } from '@/utils/csvExport'
+import etlProgressApi from '@/api/etlProgress'
 
 const crudPageRef = ref()
 const exporting = ref(false)
+const defaultTradeDate = ref('')
 
-function getYesterday() {
-  const date = new Date()
-  date.setDate(date.getDate() - 1)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
+onMounted(async () => {
+  try {
+    const res = await etlProgressApi.currentTradeDate()
+    const raw = res?.data
+    if (raw && /^\d{8}$/.test(String(raw))) {
+      const s = String(raw)
+      defaultTradeDate.value = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+    }
+  } catch {}
+})
 
 const columns = [
   { prop: 'etfCode', label: 'ETF代码' },
@@ -41,7 +45,7 @@ const columns = [
   { prop: 'signalWarning', label: '风险预警', valueMap: { 1: '存在风险', 0: '暂未发现风险' } }
 ]
 
-const searchItems = [
+const searchItems = computed(() => [
   { prop: 'etfCode', label: 'ETF代码', type: 'input' },
   { prop: 'etfName', label: 'ETF简称', type: 'input' },
   {
@@ -57,7 +61,7 @@ const searchItems = [
       { label: 'season', value: 'season' }
     ]
   },
-  { prop: 'tradeDate', label: 'K线时间', type: 'date', defaultValue: getYesterday() },
+  { prop: 'tradeDate', label: 'K线时间', type: 'date', defaultValue: defaultTradeDate.value },
   {
     prop: 'signalTrendLong',
     label: '综合趋势多头',
@@ -100,7 +104,7 @@ const searchItems = [
     type: 'select',
     options: [{ label: '存在风险', value: 1 }, { label: '暂未发现风险', value: 0 }]
   }
-]
+])
 
 function mapValue(valueMap, raw) {
   if (!valueMap) return raw ?? ''
