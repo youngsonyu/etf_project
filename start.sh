@@ -1,5 +1,8 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+FRONTEND_DIR="$SCRIPT_DIR/frontend"
+
 echo "========================================"
 echo "   Starting Backend and Frontend..."
 echo "========================================"
@@ -18,8 +21,35 @@ if [ "$JAVA_MAJOR" != "17" ]; then
 	exit 1
 fi
 
+if ! command -v mvn >/dev/null 2>&1; then
+	echo "[ERROR] Maven not found. Please install Maven and configure PATH."
+	echo "[HINT] After installation, verify with: mvn -version"
+	exit 1
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+	echo "[ERROR] npm not found. Please install Node.js and configure PATH."
+	echo "[HINT] After installation, verify with: npm -v"
+	exit 1
+fi
+
+if [ ! -f "$SCRIPT_DIR/pom.xml" ]; then
+	echo "[ERROR] Backend project file not found: $SCRIPT_DIR/pom.xml"
+	exit 1
+fi
+
+if [ ! -f "$FRONTEND_DIR/package.json" ]; then
+	echo "[ERROR] Frontend directory not found: $FRONTEND_DIR"
+	exit 1
+fi
+
+echo "[INFO] Project directory: $SCRIPT_DIR"
+echo "[INFO] Frontend directory: $FRONTEND_DIR"
+echo "[INFO] Local development only requires MySQL by default."
+echo "[INFO] Redis, RabbitMQ and Nacos are disabled locally unless APP_INFRA_*_ENABLED is set to true."
+
 # 启动后端（后台运行，输出到终端）
-cd E:\DWB\5.ETF\etfProject || exit
+cd "$SCRIPT_DIR" || exit
 mvn spring-boot:run &
 BACKEND_PID=$!
 
@@ -27,7 +57,7 @@ BACKEND_PID=$!
 sleep 2
 
 # 启动前端（后台运行，输出到终端）
-cd E:\DWB\5.ETF\etfProject\frontend || exit
+cd "$FRONTEND_DIR" || exit
 npm run dev &
 FRONTEND_PID=$!
 

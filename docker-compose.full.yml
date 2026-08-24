@@ -1,0 +1,83 @@
+services:
+  redis:
+    image: redis:7.2-alpine
+    container_name: etf-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123456}
+    command: ["sh", "-c", "redis-server --appendonly yes --save 60 1 --requirepass ${REDIS_PASSWORD:-redis123456}"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli -a ${REDIS_PASSWORD:-redis123456} ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 512m
+    cpus: 0.5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: etf-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-rabbit123456}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 768m
+    cpus: 1.0
+
+  nacos:
+    image: nacos/nacos-server:v2.3.0
+    container_name: etf-nacos
+    restart: unless-stopped
+    environment:
+      MODE: standalone
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:8848/nacos/v1/console/health | grep -q 'true' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 30
+    mem_limit: 1536m
+    cpus: 1.0
+
+  backend:
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123456}
+      APP_INFRA_REDIS_ENABLED: "true"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-admin}
+      RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-rabbit123456}
+      APP_INFRA_RABBITMQ_ENABLED: "true"
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_CONFIG_ENABLED: "false"
+      NACOS_DISCOVERY_ENABLED: "false"
+      APP_INFRA_NACOS_ENABLED: "true"
+
+volumes:
+  redis_data:
+  rabbitmq_data:

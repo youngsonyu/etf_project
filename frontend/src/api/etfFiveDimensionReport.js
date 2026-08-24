@@ -1,5 +1,5 @@
 import { createCrudApi } from './crudFactory'
-import request from '../utils/request'
+import request, { LONG_TASK_TIMEOUT } from '../utils/request'
 
 const api = createCrudApi('etf_five_dimension_report')
 
@@ -13,7 +13,7 @@ api.generateLatest = (publisher) => request({
   url: '/api/etf_five_dimension_report/generate-latest',
   method: 'post',
   params: { publisher },
-  timeout: 180000
+  timeout: LONG_TASK_TIMEOUT
 })
 
 export default api

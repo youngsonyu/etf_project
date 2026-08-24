@@ -1,9 +1,17 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
+function parseTimeout(value, fallback) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+export const DEFAULT_API_TIMEOUT = parseTimeout(import.meta.env.VITE_API_TIMEOUT, 30000)
+export const LONG_TASK_TIMEOUT = parseTimeout(import.meta.env.VITE_LONG_TASK_TIMEOUT, 180000)
+
 const service = axios.create({
   baseURL: '/',
-  timeout: 15000
+  timeout: DEFAULT_API_TIMEOUT
 })
 
 service.interceptors.response.use(

@@ -51,3 +51,12 @@ swagger:
 
 knife4j:
   enable: true
+
+app:
+  infra:
+    redis:
+      enabled: ${APP_INFRA_REDIS_ENABLED:false}
+    rabbitmq:
+      enabled: ${APP_INFRA_RABBITMQ_ENABLED:false}
+    nacos:
+      enabled: ${APP_INFRA_NACOS_ENABLED:false}

@@ -1,4 +1,4 @@
-import request from '../utils/request'
+import request, { LONG_TASK_TIMEOUT } from '../utils/request'
 
 export default {
   chat(data) {
@@ -6,7 +6,7 @@ export default {
       url: '/api/ai/chat',
       method: 'post',
       data,
-      timeout: 180000 // AI 响应最长 3 分钟
+      timeout: LONG_TASK_TIMEOUT
     })
   }
 }

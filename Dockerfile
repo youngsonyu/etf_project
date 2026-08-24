@@ -12,4 +12,5 @@ WORKDIR /app
 COPY --from=build /workspace/target/etf-backend-1.0.0.jar /app/app.jar
 
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+ENV JAVA_OPTS="-Xms256m -Xmx768m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dfile.encoding=UTF-8"
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]

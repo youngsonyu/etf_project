@@ -4,6 +4,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
+FULL_INFRA=false
+if [ "${1:-}" = "--full-infra" ]; then
+  FULL_INFRA=true
+fi
+
 print_header() {
   printf '\n==== %s ====%s\n' "$1" "$2"
 }
@@ -109,7 +114,18 @@ if [ ! -f .env ]; then
 fi
 
 print_header "Start Docker Compose Stack" ""
-$COMPOSE_CMD up -d --build
+COMPOSE_ARGS=(-f docker-compose.yml)
+if [ "$FULL_INFRA" = true ]; then
+  if [ ! -f docker-compose.full.yml ]; then
+    echo "[ERROR] docker-compose.full.yml not found in $(pwd)."
+    exit 1
+  fi
+  COMPOSE_ARGS+=(-f docker-compose.full.yml)
+  echo "Deploy mode: full infra (MySQL + backend + Redis + RabbitMQ + Nacos)"
+else
+  echo "Deploy mode: default (MySQL + backend)"
+fi
+$COMPOSE_CMD "${COMPOSE_ARGS[@]}" up -d --build
 
 print_header "Optional Data Import" ""
 load_env
@@ -157,4 +173,10 @@ done
 
 print_header "Deployment Completed" ""
 echo "Backend is available at http://127.0.0.1:8080"
+if [ "$FULL_INFRA" = true ]; then
+  echo "Full infra mode enabled. Redis, RabbitMQ and Nacos are also running."
+else
+  echo "Default mode enabled. Only MySQL and backend are running."
+  echo "To enable Redis, RabbitMQ and Nacos later, rerun: ./deploy_aliyun.sh --full-infra"
+fi
 echo "If you need to expose this externally, configure ECS security group and server firewall."

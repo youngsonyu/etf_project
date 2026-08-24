@@ -16,61 +16,14 @@ services:
       - --default-authentication-plugin=mysql_native_password
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=512M
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-Dwb5201314.}"]
       interval: 10s
       timeout: 5s
       retries: 20
-
-  redis:
-    image: redis:7.2-alpine
-    container_name: etf-redis
-    restart: unless-stopped
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123456}
-    command: ["sh", "-c", "redis-server --appendonly yes --save 60 1 --requirepass ${REDIS_PASSWORD:-redis123456}"]
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "sh", "-c", "redis-cli -a ${REDIS_PASSWORD:-redis123456} ping | grep PONG"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    container_name: etf-rabbitmq
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-admin}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-rabbit123456}
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  nacos:
-    image: nacos/nacos-server:v2.3.0
-    container_name: etf-nacos
-    restart: unless-stopped
-    environment:
-      MODE: standalone
-    ports:
-      - "8848:8848"
-      - "9848:9848"
-    healthcheck:
-      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:8848/nacos/v1/console/health | grep -q 'true' || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 30
+    mem_limit: 2g
+    cpus: 2.0
 
   backend:
     build:
@@ -81,12 +34,6 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      nacos:
-        condition: service_healthy
     environment:
       SERVER_PORT: 8080
       MYSQL_HOST: mysql
@@ -94,20 +41,14 @@ services:
       MYSQL_DB: ${MYSQL_DATABASE:-amazingdata_etf}
       MYSQL_USER: ${MYSQL_USER:-etf}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-etf123456}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123456}
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-admin}
-      RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-rabbit123456}
-      NACOS_SERVER_ADDR: nacos:8848
-      NACOS_CONFIG_ENABLED: "false"
-      NACOS_DISCOVERY_ENABLED: "false"
+      APP_INFRA_REDIS_ENABLED: "false"
+      APP_INFRA_RABBITMQ_ENABLED: "false"
+      APP_INFRA_NACOS_ENABLED: "false"
+      JAVA_OPTS: ${JAVA_OPTS:--Xms256m -Xmx768m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dfile.encoding=UTF-8}
     ports:
       - "8080:8080"
+    mem_limit: 2g
+    cpus: 2.0
 
 volumes:
   mysql_data:
-  redis_data:
-  rabbitmq_data:

@@ -6,6 +6,7 @@ import com.demo.service.SysParamService;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
 import org.springframework.amqp.rabbit.connection.Connection;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
@@ -37,16 +38,25 @@ public class InfraHealthController {
             .connectTimeout(Duration.ofSeconds(5))
             .build();
 
+    @Value("${app.infra.redis.enabled:false}")
+    private boolean redisEnabled;
+
+    @Value("${app.infra.rabbitmq.enabled:false}")
+    private boolean rabbitMqEnabled;
+
+    @Value("${app.infra.nacos.enabled:false}")
+    private boolean nacosEnabled;
+
     @Value("${spring.cloud.nacos.server-addr:127.0.0.1:8848}")
     private String nacosServerAddr;
 
     public InfraHealthController(JdbcTemplate jdbcTemplate,
-                                 StringRedisTemplate stringRedisTemplate,
-                                 ConnectionFactory rabbitConnectionFactory,
+                                 ObjectProvider<StringRedisTemplate> stringRedisTemplateProvider,
+                                 ObjectProvider<ConnectionFactory> rabbitConnectionFactoryProvider,
                                  SysParamService sysParamService) {
         this.jdbcTemplate = jdbcTemplate;
-        this.stringRedisTemplate = stringRedisTemplate;
-        this.rabbitConnectionFactory = rabbitConnectionFactory;
+        this.stringRedisTemplate = stringRedisTemplateProvider.getIfAvailable();
+        this.rabbitConnectionFactory = rabbitConnectionFactoryProvider.getIfAvailable();
         this.sysParamService = sysParamService;
     }
 
@@ -65,12 +75,18 @@ public class InfraHealthController {
     }
 
     private Map<String, Object> checkRedis() {
+        if (!redisEnabled) {
+            return skipped("disabled in local profile");
+        }
         return check(() -> {
             String host = readParamValue("infra.redis.host", null);
             Integer port = readIntParam("infra.redis.port", null);
             String password = readParamValue("infra.redis.password", null);
 
             if (host == null || port == null) {
+                if (stringRedisTemplate == null) {
+                    return null;
+                }
                 String key = "infra:health:redis";
                 stringRedisTemplate.opsForValue().set(key, "ok", Duration.ofSeconds(10));
                 return stringRedisTemplate.opsForValue().get(key);
@@ -91,6 +107,9 @@ public class InfraHealthController {
     }
 
     private Map<String, Object> checkRabbitMq() {
+        if (!rabbitMqEnabled) {
+            return skipped("disabled in local profile");
+        }
         return check(() -> {
             String host = readParamValue("infra.rabbitmq.host", null);
             Integer port = readIntParam("infra.rabbitmq.port", null);
@@ -99,6 +118,9 @@ public class InfraHealthController {
             String virtualHost = readParamValue("infra.rabbitmq.virtual-host", "/");
 
             if (host == null || port == null || username == null || password == null) {
+                if (rabbitConnectionFactory == null) {
+                    return null;
+                }
                 try (Connection connection = rabbitConnectionFactory.createConnection()) {
                     return connection.isOpen() ? "ok" : null;
                 }
@@ -117,6 +139,9 @@ public class InfraHealthController {
     }
 
     private Map<String, Object> checkNacos() {
+        if (!nacosEnabled) {
+            return skipped("disabled in local profile");
+        }
         return check(() -> {
             String dbAddr = readParamValue("infra.nacos.server-addr", null);
             String effectiveAddr = (dbAddr == null || dbAddr.isBlank()) ? nacosServerAddr : dbAddr;
@@ -147,6 +172,13 @@ public class InfraHealthController {
             data.put("ok", false);
             data.put("detail", ex.getMessage());
         }
+        return data;
+    }
+
+    private Map<String, Object> skipped(String detail) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("ok", true);
+        data.put("detail", detail);
         return data;
     }
 
