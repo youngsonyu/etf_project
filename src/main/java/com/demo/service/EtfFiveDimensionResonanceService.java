@@ -17,4 +17,16 @@ public interface EtfFiveDimensionResonanceService extends BaseCrudService<EtfFiv
     String getLastTriggeredDate();
 
     Map<String, Object> refreshLatestTradeDate();
+
+    Map<String, Object> backfillByDateRange(String startDate, String endDate);
+
+    Map<String, Object> backfillAll();
+
+    Map<String, Object> submitRefreshLatestTradeDate();
+
+    Map<String, Object> submitBackfillByDateRange(String startDate, String endDate);
+
+    Map<String, Object> submitBackfillAll();
+
+    Map<String, Object> getTaskStatus(String taskId);
 }

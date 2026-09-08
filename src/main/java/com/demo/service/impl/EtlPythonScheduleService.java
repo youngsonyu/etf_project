@@ -29,6 +29,8 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -44,15 +46,19 @@ public class EtlPythonScheduleService {
     private static final String MAX_PROCESS_DAYS_KEY = "MAX_PROCESS_DAYS";
     private static final String PYTHON_COMMAND_KEY = "PYTHON_COMMAND";
     private static final String PYTHON_SCRIPT_PATH_KEY = "PYTHON_SCRIPT_PATH";
+    private static final String PYTHON_COMMAND_ENV = "PYTHON_COMMAND";
+    private static final String PYTHON_SCRIPT_PATH_ENV = "PYTHON_SCRIPT_PATH";
     private static final String AUTO_JOB_NAME = "ETF_DATA_ETL";
     private static final String MANUAL_JOB_NAME = "ETF_MANUAL_IMPORT";
     private static final String MANUAL_STATUS_REQUESTED = "REQUESTED";
     private static final String MANUAL_STATUS_RUNNING = "RUNNING";
     private static final String MANUAL_STATUS_SUCCESS = "SUCCESS";
     private static final String MANUAL_STATUS_FAILED = "FAILED";
+    private static final String MANUAL_STATUS_PARTIAL = "PARTIAL";
     private static final String DEFAULT_SCHEDULE_TIME = "08:00";
     private static final String DEFAULT_PYTHON_COMMAND = "python";
     private static final String DEFAULT_PYTHON_SCRIPT_PATH = "scripts/getETFInfo_new.py";
+    private static final String NO_WORK_HINT = "[INFO] 没有需要处理的新交易日，退出";
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter BATCH_NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS");
 
@@ -96,8 +102,8 @@ public class EtlPythonScheduleService {
         try {
             insertTriggerRecord(batchNo, AUTO_JOB_NAME, triggerWindow.startDate, triggerWindow.endDate, MANUAL_STATUS_REQUESTED);
             updateTriggerRecord(batchNo, MANUAL_STATUS_RUNNING, null);
-            executePythonScript();
-            updateTriggerRecord(batchNo, MANUAL_STATUS_SUCCESS, null);
+            PythonExecutionResult result = executePythonScript(Collections.emptyList());
+            updateTriggerRecordAfterExecution(batchNo, result);
         } catch (Exception ex) {
             log.error("Failed to execute scheduled ETL python task", ex);
             updateTriggerRecord(batchNo, MANUAL_STATUS_FAILED, ex.getMessage());
@@ -111,7 +117,7 @@ public class EtlPythonScheduleService {
             throw new IllegalStateException("ETL python task is already running");
         }
         try {
-            executePythonScript();
+            executePythonScript(Collections.emptyList());
         } finally {
             running.set(false);
         }
@@ -135,8 +141,9 @@ public class EtlPythonScheduleService {
         Thread worker = new Thread(() -> {
             try {
                 updateTriggerRecord(batchNo, MANUAL_STATUS_RUNNING, null);
-                executePythonScript();
-                updateTriggerRecord(batchNo, MANUAL_STATUS_SUCCESS, null);
+                // --import-only：只导入 K 线/PCF/份额/IOPV，不计算技术指标
+                PythonExecutionResult result = executePythonScript(Collections.singletonList("--import-only"));
+                updateTriggerRecordAfterExecution(batchNo, result);
             } catch (Exception ex) {
                 log.error("Failed to execute manual ETL python task", ex);
                 updateTriggerRecord(batchNo, MANUAL_STATUS_FAILED, ex.getMessage());
@@ -145,7 +152,78 @@ public class EtlPythonScheduleService {
             }
         }, "etl-python-manual-trigger");
         worker.start();
-        return "导入中，请稍后";
+        return "导入任务已触发（批次号：" + batchNo + "），请稍后刷新查看状态";
+    }
+
+    /**
+     * 仅触发 L2 技术指标计算，复用 sys_param 中的 RUN_MODE/RECENT_DAYS/INCLUDE_TODAY/MAX_PROCESS_DAYS，
+     * 与"银河证券数据导入"按钮使用同一套配置，不引入新的全量/增量开关。
+     */
+    public String triggerTaCalcAsync() {
+        if (!running.compareAndSet(false, true)) {
+            throw new IllegalStateException("自动任务执行中，请等待");
+        }
+
+        String batchNo = "TA_CALC_" + LocalDateTime.now().format(BATCH_NO_FORMATTER);
+        TriggerWindow triggerWindow = resolveTriggerWindow();
+        try {
+            insertTriggerRecord(batchNo, MANUAL_JOB_NAME, triggerWindow.startDate, triggerWindow.endDate, MANUAL_STATUS_REQUESTED);
+        } catch (Exception ex) {
+            running.set(false);
+            log.error("Failed to insert manual TA calc trigger marker", ex);
+            return "L2指标计算失败: " + ex.getMessage();
+        }
+
+        Thread worker = new Thread(() -> {
+            try {
+                updateTriggerRecord(batchNo, MANUAL_STATUS_RUNNING, null);
+                // 通过命令行参数 --ta-only 告知 Python 脚本：只算指标，跳过 K 线/PCF/份额/IOPV 等抽取
+                PythonExecutionResult result = executePythonScript(Collections.singletonList("--ta-only"));
+                updateTriggerRecordAfterExecution(batchNo, result);
+            } catch (Exception ex) {
+                log.error("Failed to execute manual TA calc python task", ex);
+                updateTriggerRecord(batchNo, MANUAL_STATUS_FAILED, ex.getMessage());
+            } finally {
+                running.set(false);
+            }
+        }, "etl-ta-calc-manual-trigger");
+        worker.start();
+        return "L2指标计算任务已触发（批次号：" + batchNo + "），请稍后刷新查看状态";
+    }
+
+    /**
+     * 按天对齐 L2 指标计算：每个交易日 4 周期各一条，写入 etf_ta_indicator_daily。
+     * 复用 sys_param 中的 RUN_MODE/RECENT_DAYS/INCLUDE_TODAY/MAX_PROCESS_DAYS。
+     */
+    public String triggerTaDailyCalcAsync() {
+        if (!running.compareAndSet(false, true)) {
+            throw new IllegalStateException("自动任务执行中，请等待");
+        }
+
+        String batchNo = "TA_DAILY_" + LocalDateTime.now().format(BATCH_NO_FORMATTER);
+        TriggerWindow triggerWindow = resolveTriggerWindow();
+        try {
+            insertTriggerRecord(batchNo, MANUAL_JOB_NAME, triggerWindow.startDate, triggerWindow.endDate, MANUAL_STATUS_REQUESTED);
+        } catch (Exception ex) {
+            running.set(false);
+            log.error("Failed to insert manual TA daily calc trigger marker", ex);
+            return "按天对齐L2指标计算失败: " + ex.getMessage();
+        }
+
+        Thread worker = new Thread(() -> {
+            try {
+                updateTriggerRecord(batchNo, MANUAL_STATUS_RUNNING, null);
+                PythonExecutionResult result = executePythonScript(Collections.singletonList("--ta-daily"));
+                updateTriggerRecordAfterExecution(batchNo, result);
+            } catch (Exception ex) {
+                log.error("Failed to execute manual TA daily calc python task", ex);
+                updateTriggerRecord(batchNo, MANUAL_STATUS_FAILED, ex.getMessage());
+            } finally {
+                running.set(false);
+            }
+        }, "etl-ta-daily-manual-trigger");
+        worker.start();
+        return "按天对齐L2指标计算任务已触发（批次号：" + batchNo + "），请稍后刷新查看状态";
     }
 
     private boolean isScheduleEnabled() {
@@ -167,14 +245,21 @@ public class EtlPythonScheduleService {
         }
     }
 
-    private void executePythonScript() throws IOException, InterruptedException {
+    private PythonExecutionResult executePythonScript(List<String> extraArgs) throws IOException, InterruptedException {
         Path scriptPath = extractPythonScript();
-        String pythonCommand = resolvePythonCommand();
-        ProcessBuilder processBuilder = new ProcessBuilder(pythonCommand, scriptPath.toString());
+        List<String> pythonCommand = resolvePythonCommandParts();
+        validatePythonDependencies(pythonCommand);
+
+        List<String> command = new ArrayList<>(pythonCommand);
+        command.add(scriptPath.toString());
+        if (extraArgs != null && !extraArgs.isEmpty()) {
+            command.addAll(extraArgs);
+        }
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
         processBuilder.redirectErrorStream(true);
         processBuilder.environment().put("PYTHONIOENCODING", "UTF-8");
 
-        log.info("Triggering ETL python script: command={}, script={}", pythonCommand, scriptPath);
+        log.info("Triggering ETL python script: command={}, script={}", String.join(" ", command), scriptPath);
         Process process;
         try {
             process = processBuilder.start();
@@ -199,14 +284,119 @@ public class EtlPythonScheduleService {
             throw new IllegalStateException("Python ETL script exited with code " + exitCode + tail);
         }
         log.info("Scheduled ETL python script completed successfully");
+        boolean noWork = output.toString().contains(NO_WORK_HINT);
+        return new PythonExecutionResult(noWork);
     }
 
-    private String resolvePythonCommand() {
-        String command = readParamValue(PYTHON_COMMAND_KEY);
-        if (command.isEmpty()) {
-            return DEFAULT_PYTHON_COMMAND;
+    private void updateTriggerRecordAfterExecution(String batchNo, PythonExecutionResult result) {
+        if (result.noWork) {
+            updateTriggerRecord(batchNo, MANUAL_STATUS_PARTIAL, "没有可处理的新交易日，本次导入已跳过");
+            return;
         }
-        return command;
+        updateTriggerRecord(batchNo, MANUAL_STATUS_SUCCESS, null);
+    }
+
+    private List<String> resolvePythonCommandParts() {
+        String configured = readConfigValue(PYTHON_COMMAND_KEY, PYTHON_COMMAND_ENV);
+        if (!configured.isEmpty()) {
+            List<String> configuredParts = splitCommand(configured);
+            if (canExecutePython(configuredParts)) {
+                return configuredParts;
+            }
+            throw new IllegalStateException("PYTHON_COMMAND 配置不可用: " + configured);
+        }
+
+        List<List<String>> candidates = Arrays.asList(
+                Arrays.asList(DEFAULT_PYTHON_COMMAND),
+                Arrays.asList("python3"),
+                Arrays.asList("py", "-3"),
+                Arrays.asList("py")
+        );
+        for (List<String> candidate : candidates) {
+            if (canExecutePython(candidate)) {
+                return candidate;
+            }
+        }
+
+        throw new IllegalStateException("未找到可用的 Python 命令，请安装 Python 或在 sys_param 中配置 PYTHON_COMMAND");
+    }
+
+    private void validatePythonDependencies(List<String> pythonCommandParts) {
+        List<String> checkCommand = new ArrayList<>(pythonCommandParts);
+        checkCommand.add("-c");
+        checkCommand.add("import numpy, pandas, sqlalchemy, AmazingData");
+        CommandResult result = runCommand(checkCommand);
+        if (result.exitCode != 0) {
+            String details = result.output.isEmpty() ? "" : (", output=\n" + result.output);
+            throw new IllegalStateException("Python 依赖缺失或环境异常，请安装 numpy/pandas/sqlalchemy/AmazingData" + details);
+        }
+    }
+
+    private boolean canExecutePython(List<String> commandParts) {
+        List<String> checkCommand = new ArrayList<>(commandParts);
+        checkCommand.add("--version");
+        CommandResult result = runCommand(checkCommand);
+        return result.exitCode == 0;
+    }
+
+    private CommandResult runCommand(List<String> commandParts) {
+        ProcessBuilder processBuilder = new ProcessBuilder(commandParts);
+        processBuilder.redirectErrorStream(true);
+        StringBuilder output = new StringBuilder();
+        try {
+            Process process = processBuilder.start();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (output.length() < 4000) {
+                        output.append(line).append(System.lineSeparator());
+                    }
+                }
+            }
+            int exitCode = process.waitFor();
+            return new CommandResult(exitCode, output.toString().trim());
+        } catch (Exception ex) {
+            return new CommandResult(-1, ex.getMessage());
+        }
+    }
+
+    private List<String> splitCommand(String command) {
+        List<String> parts = new ArrayList<>();
+        String trimmed = command == null ? "" : command.trim();
+        if (trimmed.isEmpty()) {
+            return parts;
+        }
+
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+        char quoteChar = 0;
+
+        for (int i = 0; i < trimmed.length(); i++) {
+            char ch = trimmed.charAt(i);
+            if (inQuotes) {
+                if (ch == quoteChar) {
+                    inQuotes = false;
+                } else {
+                    current.append(ch);
+                }
+            } else if (ch == '"' || ch == '\'') {
+                inQuotes = true;
+                quoteChar = ch;
+            } else if (Character.isWhitespace(ch)) {
+                if (current.length() > 0) {
+                    parts.add(current.toString());
+                    current.setLength(0);
+                }
+            } else {
+                current.append(ch);
+            }
+        }
+
+        if (current.length() > 0) {
+            parts.add(current.toString());
+        }
+        return parts;
     }
 
     private void insertTriggerRecord(String batchNo, String jobName, Integer tradeDateStart, Integer tradeDateEnd, String status) {
@@ -231,7 +421,7 @@ public class EtlPythonScheduleService {
     }
 
     private Path extractPythonScript() throws IOException {
-        String scriptLocation = readParamValue(PYTHON_SCRIPT_PATH_KEY);
+        String scriptLocation = readConfigValue(PYTHON_SCRIPT_PATH_KEY, PYTHON_SCRIPT_PATH_ENV);
         if (scriptLocation.isEmpty()) {
             scriptLocation = DEFAULT_PYTHON_SCRIPT_PATH;
         }
@@ -357,6 +547,15 @@ public class EtlPythonScheduleService {
         return param == null || param.getParamValue() == null ? "" : param.getParamValue().trim();
     }
 
+    private String readConfigValue(String sysParamKey, String envKey) {
+        String value = readParamValue(sysParamKey);
+        if (!value.isEmpty()) {
+            return value;
+        }
+        String envValue = System.getenv(envKey);
+        return envValue == null ? "" : envValue.trim();
+    }
+
     private static final class TriggerWindow {
         private final Integer startDate;
         private final Integer endDate;
@@ -364,6 +563,24 @@ public class EtlPythonScheduleService {
         private TriggerWindow(Integer startDate, Integer endDate) {
             this.startDate = startDate;
             this.endDate = endDate;
+        }
+    }
+
+    private static final class PythonExecutionResult {
+        private final boolean noWork;
+
+        private PythonExecutionResult(boolean noWork) {
+            this.noWork = noWork;
+        }
+    }
+
+    private static final class CommandResult {
+        private final int exitCode;
+        private final String output;
+
+        private CommandResult(int exitCode, String output) {
+            this.exitCode = exitCode;
+            this.output = output == null ? "" : output;
         }
     }
 }

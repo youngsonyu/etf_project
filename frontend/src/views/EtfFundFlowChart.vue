@@ -59,14 +59,13 @@
         </div>
         <div class="chart-badges">
           <span class="badge badge-red">对比日期一：红色</span>
-          <span class="badge badge-green">对比日期二：绿色</span>
+          <span class="badge badge-blue">对比日期二：蓝色</span>
         </div>
         <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
           <span style="font-size:13px;color:#64748b;">排序：</span>
           <el-select v-model="sortType" size="small" style="width:200px" @change="renderChart">
             <el-option label="对比日期一金额" value="point1_desc" />
             <el-option label="对比日期二金额" value="point2_desc" />
-            <el-option label="变化量绝对值" value="diff_abs_desc" />
           </el-select>
         </div>
       </div>
@@ -203,7 +202,6 @@ function renderChart() {
         category,
         value1: item1[metricKey] || 0,
         value2: item2[metricKey] || 0,
-        diff: (item2[metricKey] || 0) - (item1[metricKey] || 0),
         etfCount: Math.max(item1.etfCount || 0, item2.etfCount || 0)
       }
     })
@@ -212,8 +210,6 @@ function renderChart() {
     chartData.sort((a, b) => b.value1 - a.value1)
   } else if (sortType.value === 'point2_desc') {
     chartData.sort((a, b) => b.value2 - a.value2)
-  } else if (sortType.value === 'diff_abs_desc') {
-    chartData.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
   }
 
   const categories = chartData.map((item) => item.category)
@@ -242,8 +238,7 @@ function renderChart() {
             `<strong>${item.category}</strong>`,
             `ETF数量：${item.etfCount} 只`,
             `对比日期一：${item.value1.toFixed(2)} 万元`,
-            `对比日期二：${item.value2.toFixed(2)} 万元`,
-            `变化量：${item.diff >= 0 ? '+' : ''}${item.diff.toFixed(2)} 万元`
+            `对比日期二：${item.value2.toFixed(2)} 万元`
           ].join('<br/>')
         }
       },
@@ -292,7 +287,7 @@ function renderChart() {
           type: 'bar',
           data: values2,
           itemStyle: {
-            color: '#10b981',
+            color: '#3b82f6',
             borderRadius: [4, 4, 0, 0]
           },
           barWidth: '28%',
@@ -301,7 +296,7 @@ function renderChart() {
             position: 'top',
             formatter: (p) => (p.value === 0 ? '0' : p.value.toFixed(0) + '万'),
             fontSize: 9,
-            color: '#166534'
+            color: '#1e40af'
           }
         }
       ]
@@ -449,9 +444,9 @@ onBeforeUnmount(() => {
   color: #dc2626;
 }
 
-.badge-green {
-  background: #dcfce7;
-  color: #16a34a;
+.badge-blue {
+  background: #dbeafe;
+  color: #2563eb;
 }
 
 .chart-body {

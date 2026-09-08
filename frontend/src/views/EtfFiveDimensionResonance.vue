@@ -1,13 +1,7 @@
 <template>
   <CrudPage :key="searchItemsVersion" ref="crudPageRef" :api="api" :columns="columns" :search-items="searchItems">
     <template #toolbar>
-      <el-tooltip v-if="isNormalUser" content="普通用户无法刷新最新交易日" placement="top">
-      <span>
-        <el-button type="primary" :loading="refreshing" disabled>刷新最新交易日</el-button>
-      </span>
-    </el-tooltip>
-    <el-button v-else type="primary" :loading="refreshing" @click="confirmRefreshLatest">刷新最新交易日</el-button>
-    <el-button type="success" :loading="exporting" @click="exportCsv">导出CSV</el-button>
+      <el-button type="success" :loading="exporting" @click="exportCsv">导出CSV</el-button>
     </template>
   </CrudPage>
 </template>
@@ -22,11 +16,9 @@ import { exportToCsv } from '@/utils/csvExport'
 
 const crudPageRef = ref()
 const exporting = ref(false)
-const refreshing = ref(false)
 const latestTradeDate = ref('')
 const lastTriggeredDefault = ref('')
 const searchItemsVersion = ref(0)
-const isNormalUser = ref(localStorage.getItem('etf_login_type') === 'user')
 
 const columns = [
   { prop: 'etfCode', label: 'ETF代码' },
@@ -122,46 +114,6 @@ async function loadLatestTradeDate() {
     lastTriggeredDefault.value = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
   }
   searchItemsVersion.value += 1
-}
-
-async function confirmRefreshLatest() {
-  try {
-    if (!latestTradeDate.value) {
-      await loadLatestTradeDate()
-    }
-    if (!latestTradeDate.value) {
-      ElMessage.warning('未找到可刷新的最新交易日')
-      return
-    }
-
-    await ElMessageBox.confirm(
-      `你确定你要刷新${latestTradeDate.value}的五维共振ETF数据么？`,
-      '确认刷新',
-      { type: 'warning' }
-    )
-
-    refreshing.value = true
-    const res = await api.refreshLatest()
-    const payload = res?.data || {}
-    if (payload.skipped) {
-      ElMessage.info(`${payload.tradeDate || latestTradeDate.value} 数据已存在，无需刷新`)
-    } else {
-      ElMessage.success(`刷新完成：${payload.tradeDate || latestTradeDate.value}，共更新 ${payload.inserted || 0} 条`)
-      if (latestTradeDate.value) {
-        const s = String(latestTradeDate.value)
-        lastTriggeredDefault.value = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
-        searchItemsVersion.value += 1
-      }
-    }
-    crudPageRef.value?.loadData()
-  } catch (error) {
-    if (error === 'cancel' || error === 'close') {
-      return
-    }
-    ElMessage.error(error?.message || '刷新失败')
-  } finally {
-    refreshing.value = false
-  }
 }
 
 function mapValueStr(valueMap, raw) {

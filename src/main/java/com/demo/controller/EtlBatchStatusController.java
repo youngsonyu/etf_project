@@ -42,6 +42,24 @@ public class EtlBatchStatusController {
         }
     }
 
+    @PostMapping("/calc-ta")
+    public R<String> calcTaIndicator() {
+        try {
+            return R.ok(etlPythonScheduleService.triggerTaCalcAsync());
+        } catch (Exception ex) {
+            return R.error(ex.getMessage());
+        }
+    }
+
+    @PostMapping("/calc-ta-daily")
+    public R<String> calcTaIndicatorDaily() {
+        try {
+            return R.ok(etlPythonScheduleService.triggerTaDailyCalcAsync());
+        } catch (Exception ex) {
+            return R.error(ex.getMessage());
+        }
+    }
+
     @GetMapping("/{id}")
     public R<EtlBatchStatus> getById(@PathVariable Long id) {
         return R.ok(baseService.getById(id));

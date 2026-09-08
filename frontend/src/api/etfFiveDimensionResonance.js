@@ -24,4 +24,20 @@ api.refreshLatest = () => request({
 	method: 'post'
 })
 
+api.backfill = (data) => request({
+	url: '/api/etf_five_dimension_resonance/backfill',
+	method: 'post',
+	data
+})
+
+api.backfillAll = () => request({
+	url: '/api/etf_five_dimension_resonance/backfill-all',
+	method: 'post'
+})
+
+api.taskStatus = (taskId) => request({
+	url: `/api/etf_five_dimension_resonance/tasks/${taskId}`,
+	method: 'get'
+})
+
 export default api

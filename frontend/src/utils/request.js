@@ -8,6 +8,7 @@ function parseTimeout(value, fallback) {
 
 export const DEFAULT_API_TIMEOUT = parseTimeout(import.meta.env.VITE_API_TIMEOUT, 30000)
 export const LONG_TASK_TIMEOUT = parseTimeout(import.meta.env.VITE_LONG_TASK_TIMEOUT, 180000)
+export const VERY_LONG_TASK_TIMEOUT = parseTimeout(import.meta.env.VITE_VERY_LONG_TASK_TIMEOUT, 900000)
 
 const service = axios.create({
   baseURL: '/',

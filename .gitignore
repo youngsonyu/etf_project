@@ -36,3 +36,11 @@ Desktop.ini
 *.tmp
 *.bak
 *.swp
+
+# local backup of project (already in remote history)
+bin/
+# python cache
+__pycache__/
+# local sql scratch files
+etf_ta_indicator_daily.sql
+jdbc-cp.txt

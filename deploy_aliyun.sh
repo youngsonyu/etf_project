@@ -4,75 +4,24 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
-FULL_INFRA=false
-if [ "${1:-}" = "--full-infra" ]; then
-  FULL_INFRA=true
-fi
+APP_NAME="etf-backend"
+RUN_DIR="$REPO_ROOT/.run"
+PID_FILE="$RUN_DIR/${APP_NAME}.pid"
+LOG_FILE="$RUN_DIR/${APP_NAME}.log"
+JAR_PATH="$REPO_ROOT/target/etf-backend-1.0.0.jar"
 
 print_header() {
-  printf '\n==== %s ====%s\n' "$1" "$2"
+  printf '\n==== %s ====\n' "$1"
 }
 
 check_command() {
   command -v "$1" >/dev/null 2>&1
 }
 
-install_docker() {
-  if check_command docker; then
-    echo "Docker already installed."
-    return
-  fi
-
-  if check_command yum; then
-    echo "Installing Docker with yum..."
-    sudo yum install -y yum-utils
-    sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-    sudo yum install -y docker-ce docker-ce-cli containerd.io
-    sudo systemctl enable --now docker
-  elif check_command apt-get; then
-    echo "Installing Docker with apt-get..."
-    sudo apt-get update
-    sudo apt-get install -y ca-certificates curl gnupg lsb-release
-    sudo mkdir -p /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/$(. /etc/os-release && echo "$ID")/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$(. /etc/os-release && echo "$ID") $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-    sudo apt-get update
-    sudo apt-get install -y docker-ce docker-ce-cli containerd.io
-    sudo systemctl enable --now docker
-  else
-    echo "[ERROR] No supported package manager found. Install Docker manually."
+require_command() {
+  if ! check_command "$1"; then
+    echo "[ERROR] Missing required command: $1"
     exit 1
-  fi
-}
-
-install_docker_compose() {
-  if check_command docker && docker compose version >/dev/null 2>&1; then
-    echo "Docker Compose plugin is available."
-    return
-  fi
-
-  if check_command docker-compose; then
-    echo "docker-compose binary is available."
-    return
-  fi
-
-  if ! check_command curl; then
-    echo "[ERROR] curl is required to install Docker Compose. Install curl first."
-    exit 1
-  fi
-
-  echo "Installing Docker Compose..."
-  sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-  sudo chmod +x /usr/local/bin/docker-compose
-}
-
-get_compose_cmd() {
-  if check_command docker && docker compose version >/dev/null 2>&1; then
-    echo "docker compose"
-  elif check_command docker-compose; then
-    echo "docker-compose"
-  else
-    echo ""
   fi
 }
 
@@ -85,98 +34,139 @@ load_env() {
   fi
 }
 
-print_header "Aliyun ECS One-Click Deploy" ""
+check_java_version() {
+  local version_line major
+  version_line="$(java -version 2>&1 | head -n1)"
+  major="$(echo "$version_line" | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p')"
+  if [ "$major" != "17" ]; then
+    echo "[ERROR] Java 17 is required, detected: ${major:-unknown}"
+    exit 1
+  fi
+}
 
-if [ ! -f docker-compose.yml ]; then
-  echo "[ERROR] docker-compose.yml not found in $(pwd). Please run this script from the project root."
+stop_existing_process() {
+  if [ ! -f "$PID_FILE" ]; then
+    return
+  fi
+  local old_pid
+  old_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+  if [ -n "$old_pid" ] && kill -0 "$old_pid" >/dev/null 2>&1; then
+    echo "Stopping existing process (PID=$old_pid)..."
+    kill "$old_pid"
+    for _ in $(seq 1 20); do
+      if ! kill -0 "$old_pid" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 1
+    done
+    if kill -0 "$old_pid" >/dev/null 2>&1; then
+      echo "Process still running, sending SIGKILL..."
+      kill -9 "$old_pid"
+    fi
+  fi
+  rm -f "$PID_FILE"
+}
+
+check_mysql_connectivity() {
+  local host port user db
+  host="${MYSQL_HOST:-127.0.0.1}"
+  port="${MYSQL_PORT:-3306}"
+  user="${MYSQL_USER:-root}"
+  db="${MYSQL_DB:-amazingdata_etf}"
+
+  if check_command mysql; then
+    if mysql -h "$host" -P "$port" -u "$user" -p"${MYSQL_PASSWORD:-}" -e "SELECT 1" "$db" >/dev/null 2>&1; then
+      echo "MySQL connectivity check passed: ${user}@${host}:${port}/${db}"
+      return
+    fi
+    echo "[WARN] MySQL connectivity check failed. Verify MYSQL_* values in .env."
+    return
+  fi
+
+  echo "[WARN] mysql client not found, skipping active MySQL connectivity check."
+}
+
+print_header "Aliyun ECS Java + MySQL Deploy"
+
+if [ ! -f pom.xml ]; then
+  echo "[ERROR] pom.xml not found in $(pwd). Run this script from project root."
   exit 1
 fi
-
-print_header "Install or verify Docker" ""
-install_docker
-install_docker_compose
-
-COMPOSE_CMD="$(get_compose_cmd)"
-if [ -z "$COMPOSE_CMD" ]; then
-  echo "[ERROR] Docker Compose is not available after installation."
-  exit 1
-fi
-
-echo "Using compose command: $COMPOSE_CMD"
 
 if [ ! -f .env ]; then
   if [ -f .env.example ]; then
     cp .env.example .env
-    echo "Created .env from .env.example. Review .env before deploying."
+    echo "Created .env from .env.example. Review credentials before deploying."
   else
-    echo "[WARN] .env.example not found. Ensure environment variables are set in .env."
+    echo "[WARN] .env.example not found. Ensure MYSQL_* env vars are configured."
   fi
 fi
 
-print_header "Start Docker Compose Stack" ""
-COMPOSE_ARGS=(-f docker-compose.yml)
-if [ "$FULL_INFRA" = true ]; then
-  if [ ! -f docker-compose.full.yml ]; then
-    echo "[ERROR] docker-compose.full.yml not found in $(pwd)."
-    exit 1
-  fi
-  COMPOSE_ARGS+=(-f docker-compose.full.yml)
-  echo "Deploy mode: full infra (MySQL + backend + Redis + RabbitMQ + Nacos)"
-else
-  echo "Deploy mode: default (MySQL + backend)"
-fi
-$COMPOSE_CMD "${COMPOSE_ARGS[@]}" up -d --build
-
-print_header "Optional Data Import" ""
 load_env
-SQL_FILE=""
-if [ -f "$REPO_ROOT/etf_db_dump.sql" ]; then
-  SQL_FILE="$REPO_ROOT/etf_db_dump.sql"
-elif [ -f "$REPO_ROOT/init.sql" ]; then
-  SQL_FILE="$REPO_ROOT/init.sql"
+
+print_header "Pre-check"
+require_command java
+require_command mvn
+require_command curl
+check_java_version
+check_mysql_connectivity
+
+print_header "Build backend"
+mvn -q -DskipTests package
+
+if [ ! -f "$JAR_PATH" ]; then
+  echo "[ERROR] Build output not found: $JAR_PATH"
+  exit 1
 fi
 
-if [ -n "$SQL_FILE" ]; then
-  if [ -z "${MYSQL_ROOT_PASSWORD:-}" ] || [ -z "${MYSQL_DATABASE:-}" ]; then
-    echo "[WARN] MYSQL_ROOT_PASSWORD or MYSQL_DATABASE is not set in .env. Skipping import."
-  else
-    MYSQL_CONTAINER="$(docker ps --filter "name=etf-mysql" --format '{{.Names}}' | head -n1)"
-    if [ -z "$MYSQL_CONTAINER" ]; then
-      MYSQL_CONTAINER="$(docker ps --filter "name=mysql" --format '{{.Names}}' | head -n1)"
-    fi
-    if [ -z "$MYSQL_CONTAINER" ]; then
-      echo "[WARN] Cannot find MySQL container by name. Skipping SQL import."
-    else
-      echo "Found MySQL container: $MYSQL_CONTAINER"
-      docker cp "$SQL_FILE" "$MYSQL_CONTAINER":/tmp/init.sql
-      docker exec -i "$MYSQL_CONTAINER" sh -c "mysql -u root -p\"$MYSQL_ROOT_PASSWORD\" \"$MYSQL_DATABASE\" < /tmp/init.sql"
-      echo "SQL import completed from $(basename "$SQL_FILE")."
-    fi
-  fi
-else
-  echo "No SQL init file found at $REPO_ROOT/etf_db_dump.sql or $REPO_ROOT/init.sql. If you want to import data, add one of these files and rerun the script."
-fi
+mkdir -p "$RUN_DIR"
+stop_existing_process
 
-print_header "Health Check" ""
-for i in $(seq 1 15); do
-  if curl -sf http://127.0.0.1:8080/api/infra/health >/dev/null 2>&1; then
+JAVA_OPTS="${JAVA_OPTS:--Xms256m -Xmx768m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dfile.encoding=UTF-8}"
+SERVER_PORT="${SERVER_PORT:-8080}"
+MYSQL_HOST="${MYSQL_HOST:-127.0.0.1}"
+MYSQL_PORT="${MYSQL_PORT:-3306}"
+MYSQL_DB="${MYSQL_DB:-amazingdata_etf}"
+MYSQL_USER="${MYSQL_USER:-root}"
+MYSQL_PASSWORD="${MYSQL_PASSWORD:-}"
+APP_INFRA_REDIS_ENABLED="${APP_INFRA_REDIS_ENABLED:-false}"
+APP_INFRA_RABBITMQ_ENABLED="${APP_INFRA_RABBITMQ_ENABLED:-false}"
+APP_INFRA_NACOS_ENABLED="${APP_INFRA_NACOS_ENABLED:-false}"
+
+print_header "Start backend"
+nohup env \
+  SERVER_PORT="$SERVER_PORT" \
+  MYSQL_HOST="$MYSQL_HOST" \
+  MYSQL_PORT="$MYSQL_PORT" \
+  MYSQL_DB="$MYSQL_DB" \
+  MYSQL_USER="$MYSQL_USER" \
+  MYSQL_PASSWORD="$MYSQL_PASSWORD" \
+  APP_INFRA_REDIS_ENABLED="$APP_INFRA_REDIS_ENABLED" \
+  APP_INFRA_RABBITMQ_ENABLED="$APP_INFRA_RABBITMQ_ENABLED" \
+  APP_INFRA_NACOS_ENABLED="$APP_INFRA_NACOS_ENABLED" \
+  java $JAVA_OPTS -jar "$JAR_PATH" >"$LOG_FILE" 2>&1 &
+
+NEW_PID=$!
+echo "$NEW_PID" > "$PID_FILE"
+echo "Backend started, PID=$NEW_PID"
+echo "Log file: $LOG_FILE"
+
+print_header "Health check"
+for i in $(seq 1 20); do
+  if curl -sf "http://127.0.0.1:${SERVER_PORT}/api/infra/health" >/dev/null 2>&1; then
     echo "Backend health check passed."
     break
   fi
-  echo "Waiting for backend health check... ($i/15)"
-  sleep 3
-  if [ "$i" -eq 15 ]; then
-    echo "[WARN] Backend did not become healthy in time. Check Docker logs with: $COMPOSE_CMD logs backend"
+  sleep 2
+  if [ "$i" -eq 20 ]; then
+    echo "[ERROR] Backend did not become healthy in time."
+    echo "Recent logs:"
+    tail -n 60 "$LOG_FILE" || true
     exit 1
   fi
 done
 
-print_header "Deployment Completed" ""
-echo "Backend is available at http://127.0.0.1:8080"
-if [ "$FULL_INFRA" = true ]; then
-  echo "Full infra mode enabled. Redis, RabbitMQ and Nacos are also running."
-else
-  echo "Default mode enabled. Only MySQL and backend are running."
-  echo "To enable Redis, RabbitMQ and Nacos later, rerun: ./deploy_aliyun.sh --full-infra"
-fi
-echo "If you need to expose this externally, configure ECS security group and server firewall."
+print_header "Deployment completed"
+echo "Backend API: http://127.0.0.1:${SERVER_PORT}"
+echo "API docs:    http://127.0.0.1:${SERVER_PORT}/doc.html"
+echo "Stop command: kill \$(cat $PID_FILE)"

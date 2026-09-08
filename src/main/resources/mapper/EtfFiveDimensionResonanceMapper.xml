@@ -9,6 +9,21 @@
         WHERE period = 'day'
     </select>
 
+    <select id="selectDayTradeDates" resultType="java.lang.String">
+      SELECT DISTINCT DATE_FORMAT(DATE(trade_time), '%Y-%m-%d')
+      FROM etf_ta_indicator
+      WHERE period = 'day'
+        AND DATE(trade_time) BETWEEN #{startDate} AND #{endDate}
+      ORDER BY DATE(trade_time)
+    </select>
+
+    <select id="selectAllDayTradeDates" resultType="java.lang.String">
+      SELECT DISTINCT DATE_FORMAT(DATE(trade_time), '%Y-%m-%d') AS trade_date
+      FROM etf_ta_indicator
+      WHERE period = 'day'
+      ORDER BY trade_date
+    </select>
+
     <select id="selectLatestBatchDateByTradeDate" resultType="java.lang.String">
         SELECT MAX(SUBSTRING(etl_batch_no, 1, 8))
         FROM etf_ta_indicator
@@ -17,11 +32,10 @@
           AND DATE(trade_time) = #{tradeDate}
     </select>
 
-    <select id="selectPreviousBatchDateByTradeDate" resultType="java.lang.String">
-        SELECT MAX(SUBSTRING(etl_batch_no, 1, 8))
+    <select id="selectPreviousTradeDateByTradeDate" resultType="java.lang.String">
+        SELECT DATE_FORMAT(MAX(DATE(trade_time)), '%Y-%m-%d')
         FROM etf_ta_indicator
-        WHERE etl_batch_no REGEXP '^[0-9]{8}_'
-          AND period = 'day'
+        WHERE period = 'day'
           AND DATE(trade_time) &lt; #{tradeDate}
     </select>
 
@@ -98,31 +112,63 @@
             WHERE t.period = 'day'
           ),
           qualified_today AS (
-            SELECT etf_code
-            FROM etf_ta_indicator
-            WHERE etl_batch_no LIKE CONCAT(#{latestBatchDate}, '_%')
-              AND is_macd_golden_state = 1
-              AND is_sar_bullish = 1
+            SELECT t.etf_code
+            FROM etf_ta_indicator t
+            WHERE t.period IN ('day', 'week', 'month', 'season')
+              AND t.is_macd_golden_state = 1
+              AND t.is_macd_red = 1
+              AND t.is_sar_bullish = 1
+              AND t.trade_time = (
+                SELECT MAX(t2.trade_time)
+                FROM etf_ta_indicator t2
+                WHERE t2.etf_code = t.etf_code
+                  AND t2.period = t.period
+                  AND DATE(t2.trade_time) &lt;= #{tradeDate}
+              )
             GROUP BY etf_code
-            HAVING COUNT(*) = 4
+            HAVING COUNT(DISTINCT period) = 4
         ),
         qualified_yesterday AS (
-            SELECT etf_code
-            FROM etf_ta_indicator
-            WHERE etl_batch_no LIKE CONCAT(#{previousBatchDate}, '_%')
-              AND is_macd_golden_state = 1
-              AND is_sar_bullish = 1
+            SELECT t.etf_code
+            FROM etf_ta_indicator t
+            WHERE #{previousTradeDate} IS NOT NULL
+              AND t.period IN ('day', 'week', 'month', 'season')
+              AND t.is_macd_golden_state = 1
+              AND t.is_macd_red = 1
+              AND t.is_sar_bullish = 1
+              AND t.trade_time = (
+                SELECT MAX(t2.trade_time)
+                FROM etf_ta_indicator t2
+                WHERE t2.etf_code = t.etf_code
+                  AND t2.period = t.period
+                  AND DATE(t2.trade_time) &lt;= #{previousTradeDate}
+              )
             GROUP BY etf_code
-            HAVING COUNT(*) = 4
+            HAVING COUNT(DISTINCT period) = 4
         ),
         qualified_history AS (
-            SELECT SUBSTRING(etl_batch_no, 1, 8) AS batch_day, etf_code
-            FROM etf_ta_indicator
-            WHERE etl_batch_no REGEXP '^[0-9]{8}_'
-              AND is_macd_golden_state = 1
-              AND is_sar_bullish = 1
-            GROUP BY SUBSTRING(etl_batch_no, 1, 8), etf_code
-            HAVING COUNT(*) = 4
+            SELECT target_date, etf_code
+            FROM (
+                SELECT d.target_date, t.etf_code, t.period,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY d.target_date, t.etf_code, t.period
+                           ORDER BY t.trade_time DESC
+                       ) AS rn
+                FROM (
+                    SELECT DISTINCT DATE(trade_time) AS target_date
+                    FROM etf_ta_indicator
+                    WHERE period = 'day'
+                ) d
+                INNER JOIN etf_ta_indicator t
+                    ON t.trade_time &lt; DATE_ADD(d.target_date, INTERVAL 1 DAY)
+                   AND t.period IN ('day', 'week', 'month', 'season')
+                   AND t.is_macd_golden_state = 1
+                   AND t.is_macd_red = 1
+                   AND t.is_sar_bullish = 1
+            ) latest_period
+            WHERE rn = 1
+            GROUP BY target_date, etf_code
+            HAVING COUNT(DISTINCT period) = 4
         )
         SELECT
             sm.etf_code,
@@ -170,26 +216,23 @@
             CASE WHEN qy.etf_code IS NULL THEN 0 ELSE 1 END AS is_yesterday_triggered,
             CASE WHEN qt.etf_code IS NULL THEN 0 ELSE 1 END AS is_today_triggered,
             (
-                SELECT MIN(STR_TO_DATE(qh.batch_day, '%Y%m%d'))
+                SELECT MIN(qh.target_date)
                 FROM qualified_history qh
                 WHERE qh.etf_code = sm.etf_code
-                  AND SUBSTRING(qh.batch_day, 1, 4) = SUBSTRING(#{latestBatchDate}, 1, 4)
-                  AND qh.batch_day &lt;= #{latestBatchDate}
+                  AND YEAR(qh.target_date) = YEAR(#{tradeDate})
+                  AND qh.target_date &lt;= #{tradeDate}
             ) AS first_triggered_date_of_year,
             (
-                SELECT MAX(STR_TO_DATE(qh.batch_day, '%Y%m%d'))
+                SELECT MAX(qh.target_date)
                 FROM qualified_history qh
                 WHERE qh.etf_code = sm.etf_code
-                  AND qh.batch_day &lt; #{latestBatchDate}
+                  AND qh.target_date &lt; #{tradeDate}
             ) AS previous_triggered_date,
             (
-                SELECT MAX(DATE(t.trade_time))
-                FROM etf_ta_indicator t
-                WHERE t.etf_code = sm.etf_code
-                  AND t.period = 'day'
-                  AND t.is_macd_golden_state = 1
-                  AND t.is_sar_bullish = 1
-                  AND DATE(t.trade_time) &lt;= #{tradeDate}
+                SELECT MAX(qh.target_date)
+                FROM qualified_history qh
+                WHERE qh.etf_code = sm.etf_code
+                  AND qh.target_date &lt;= #{tradeDate}
             ) AS last_triggered_date,
             COALESCE(t1.source, 'AmazingData') AS source,
             COALESCE(t1.etl_batch_no, CONCAT(#{latestBatchDate}, '_FIVE_DIM')) AS etl_batch_no
@@ -249,6 +292,133 @@
             etl_batch_no = VALUES(etl_batch_no),
             updated_at = CURRENT_TIMESTAMP
     </insert>
+
+        <insert id="upsertAllHistory">
+          INSERT INTO etf_five_dimension_resonance (
+            etf_code, etf_name, trade_date, trade_time,
+            signal_trend_long, signal_momentum_long, signal_warning,
+            open_price, high_price, low_price, close_price, volume, amount,
+            dif, dea, macd, is_macd_golden_state, is_macd_red, macd_hist_direction,
+            sar_value, is_sar_bullish, sar_trend,
+            ma5, ma10, ma20, ma30, ma60,
+            is_ma5_above_ma10, is_ma10_above_ma20, is_close_above_ma20, is_close_above_ma60,
+            rsi6, rsi12, rsi24, k_value, d_value, j_value,
+            boll_mid, boll_upper, boll_lower, atr14, adx14,
+            is_yesterday_triggered, is_today_triggered,
+            first_triggered_date_of_year, previous_triggered_date, last_triggered_date,
+            source, etl_batch_no
+          )
+          WITH period_intervals AS (
+            SELECT
+              etf_code,
+              period,
+              DATE(trade_time) AS effective_date,
+              LEAD(DATE(trade_time)) OVER (
+                PARTITION BY etf_code, period
+                ORDER BY trade_time
+              ) AS next_effective_date,
+              is_macd_golden_state,
+              is_macd_red,
+              is_sar_bullish
+            FROM etf_ta_indicator
+            WHERE period IN ('week', 'month', 'season')
+          ),
+          daily_signals AS (
+            SELECT
+              day_ta.*,
+              DATE(day_ta.trade_time) AS trade_date,
+              CASE WHEN day_ta.is_macd_golden_state = 1
+                    AND day_ta.is_macd_red = 1
+                    AND day_ta.is_sar_bullish = 1
+                    AND week_ta.is_macd_golden_state = 1
+                    AND week_ta.is_macd_red = 1
+                    AND week_ta.is_sar_bullish = 1
+                    AND month_ta.is_macd_golden_state = 1
+                    AND month_ta.is_macd_red = 1
+                    AND month_ta.is_sar_bullish = 1
+                    AND season_ta.is_macd_golden_state = 1
+                    AND season_ta.is_macd_red = 1
+                    AND season_ta.is_sar_bullish = 1
+                 THEN 1 ELSE 0 END AS is_today_triggered
+            FROM etf_ta_indicator day_ta
+            INNER JOIN period_intervals week_ta
+              ON week_ta.etf_code = day_ta.etf_code
+               AND week_ta.period = 'week'
+               AND day_ta.trade_time >= week_ta.effective_date
+               AND (week_ta.next_effective_date IS NULL OR day_ta.trade_time &lt; week_ta.next_effective_date)
+            INNER JOIN period_intervals month_ta
+              ON month_ta.etf_code = day_ta.etf_code
+               AND month_ta.period = 'month'
+               AND day_ta.trade_time >= month_ta.effective_date
+               AND (month_ta.next_effective_date IS NULL OR day_ta.trade_time &lt; month_ta.next_effective_date)
+            INNER JOIN period_intervals season_ta
+              ON season_ta.etf_code = day_ta.etf_code
+               AND season_ta.period = 'season'
+               AND day_ta.trade_time >= season_ta.effective_date
+               AND (season_ta.next_effective_date IS NULL OR day_ta.trade_time &lt; season_ta.next_effective_date)
+            LEFT JOIN etf_security_master sm ON sm.etf_code = day_ta.etf_code
+            WHERE day_ta.period = 'day'
+              AND COALESCE(sm.is_active, 1) = 1
+          ),
+          signal_history AS (
+            SELECT
+              daily_signals.*,
+              LAG(is_today_triggered, 1, 0) OVER (
+                PARTITION BY etf_code
+                ORDER BY trade_time
+              ) AS is_yesterday_triggered,
+              MAX(CASE WHEN is_today_triggered = 1 THEN trade_date END) OVER (
+                PARTITION BY etf_code
+                ORDER BY trade_time
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+              ) AS previous_triggered_date,
+              MAX(CASE WHEN is_today_triggered = 1 THEN trade_date END) OVER (
+                PARTITION BY etf_code
+                ORDER BY trade_time
+                ROWS UNBOUNDED PRECEDING
+              ) AS last_triggered_date
+            FROM daily_signals
+          ),
+          result_rows AS (
+            SELECT
+              signal_history.*,
+              MIN(CASE WHEN is_today_triggered = 1 THEN trade_date END) OVER (
+                PARTITION BY etf_code, YEAR(trade_date)
+              ) AS first_triggered_date_of_year
+            FROM signal_history
+          )
+          SELECT
+            result_rows.etf_code,
+            COALESCE(sm.symbol, result_rows.etf_code) AS etf_name,
+            result_rows.trade_date,
+            result_rows.trade_time,
+            COALESCE(result_rows.signal_trend_long, 0), COALESCE(result_rows.signal_momentum_long, 0), COALESCE(result_rows.signal_warning, 0),
+            result_rows.open_price, result_rows.high_price, result_rows.low_price, result_rows.close_price, result_rows.volume, result_rows.amount,
+            result_rows.dif, result_rows.dea, result_rows.macd, COALESCE(result_rows.is_macd_golden_state, 0), COALESCE(result_rows.is_macd_red, 0), COALESCE(result_rows.macd_hist_direction, 0),
+            result_rows.sar_value, COALESCE(result_rows.is_sar_bullish, 0), COALESCE(result_rows.sar_trend, 0),
+            result_rows.ma5, result_rows.ma10, result_rows.ma20, result_rows.ma30, result_rows.ma60,
+            COALESCE(result_rows.is_ma5_above_ma10, 0), COALESCE(result_rows.is_ma10_above_ma20, 0), COALESCE(result_rows.is_close_above_ma20, 0), COALESCE(result_rows.is_close_above_ma60, 0),
+            result_rows.rsi6, result_rows.rsi12, result_rows.rsi24, result_rows.k_value, result_rows.d_value, result_rows.j_value,
+            result_rows.boll_mid, result_rows.boll_upper, result_rows.boll_lower, result_rows.atr14, result_rows.adx14,
+            result_rows.is_yesterday_triggered, result_rows.is_today_triggered,
+            result_rows.first_triggered_date_of_year, result_rows.previous_triggered_date, result_rows.last_triggered_date,
+            COALESCE(result_rows.source, 'AmazingData'), result_rows.etl_batch_no
+          FROM result_rows
+          LEFT JOIN etf_security_master sm ON sm.etf_code = result_rows.etf_code
+          ON DUPLICATE KEY UPDATE
+            etf_name = VALUES(etf_name), trade_time = VALUES(trade_time),
+            signal_trend_long = VALUES(signal_trend_long), signal_momentum_long = VALUES(signal_momentum_long), signal_warning = VALUES(signal_warning),
+            open_price = VALUES(open_price), high_price = VALUES(high_price), low_price = VALUES(low_price), close_price = VALUES(close_price), volume = VALUES(volume), amount = VALUES(amount),
+            dif = VALUES(dif), dea = VALUES(dea), macd = VALUES(macd), is_macd_golden_state = VALUES(is_macd_golden_state), is_macd_red = VALUES(is_macd_red), macd_hist_direction = VALUES(macd_hist_direction),
+            sar_value = VALUES(sar_value), is_sar_bullish = VALUES(is_sar_bullish), sar_trend = VALUES(sar_trend),
+            ma5 = VALUES(ma5), ma10 = VALUES(ma10), ma20 = VALUES(ma20), ma30 = VALUES(ma30), ma60 = VALUES(ma60),
+            is_ma5_above_ma10 = VALUES(is_ma5_above_ma10), is_ma10_above_ma20 = VALUES(is_ma10_above_ma20), is_close_above_ma20 = VALUES(is_close_above_ma20), is_close_above_ma60 = VALUES(is_close_above_ma60),
+            rsi6 = VALUES(rsi6), rsi12 = VALUES(rsi12), rsi24 = VALUES(rsi24), k_value = VALUES(k_value), d_value = VALUES(d_value), j_value = VALUES(j_value),
+            boll_mid = VALUES(boll_mid), boll_upper = VALUES(boll_upper), boll_lower = VALUES(boll_lower), atr14 = VALUES(atr14), adx14 = VALUES(adx14),
+            is_yesterday_triggered = VALUES(is_yesterday_triggered), is_today_triggered = VALUES(is_today_triggered),
+            first_triggered_date_of_year = VALUES(first_triggered_date_of_year), previous_triggered_date = VALUES(previous_triggered_date), last_triggered_date = VALUES(last_triggered_date),
+            source = VALUES(source), etl_batch_no = VALUES(etl_batch_no), updated_at = CURRENT_TIMESTAMP
+        </insert>
 
     <select id="selectMaxLastTriggeredDate" resultType="java.lang.String">
         SELECT DATE_FORMAT(MAX(last_triggered_date), '%Y-%m-%d')

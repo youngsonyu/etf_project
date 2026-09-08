@@ -1,12 +1,13 @@
 ﻿import { createCrudApi } from './crudFactory'
-import request from '@/utils/request'
+import request, { LONG_TASK_TIMEOUT } from '@/utils/request'
 
 const api = createCrudApi('etf_fund_flow_summary')
 
 api.accumulate = (data) => request({
 	url: '/api/etf_fund_flow_summary/accumulate',
 	method: 'post',
-	data
+	data,
+	timeout: LONG_TASK_TIMEOUT
 })
 
 api.chartData = (data) => request({

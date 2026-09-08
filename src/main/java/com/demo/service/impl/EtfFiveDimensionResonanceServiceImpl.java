@@ -16,10 +16,17 @@ import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 public class EtfFiveDimensionResonanceServiceImpl extends ServiceImpl<EtfFiveDimensionResonanceMapper, EtfFiveDimensionResonance>
         implements EtfFiveDimensionResonanceService {
+
+    private final Map<String, Map<String, Object>> tasks = new ConcurrentHashMap<>();
+    private final AtomicBoolean taskRunning = new AtomicBoolean(false);
 
     @Override
     public PageResult<EtfFiveDimensionResonance> pageByCondition(PageParam param) {
@@ -70,12 +77,9 @@ public class EtfFiveDimensionResonanceServiceImpl extends ServiceImpl<EtfFiveDim
             throw new IllegalStateException("未找到最新K线交易日对应的etf_ta_indicator批次数据，无法刷新五维共振结果");
         }
 
-        String previousBatchDate = baseMapper.selectPreviousBatchDateByTradeDate(latestTradeDate);
-        if (previousBatchDate == null || previousBatchDate.trim().isEmpty()) {
-            previousBatchDate = latestBatchDate;
-        }
+        String previousTradeDate = baseMapper.selectPreviousTradeDateByTradeDate(latestTradeDate);
 
-        int inserted = baseMapper.upsertByBatchDate(latestBatchDate, previousBatchDate, latestTradeDate);
+        int inserted = baseMapper.upsertByBatchDate(latestBatchDate, previousTradeDate, latestTradeDate);
 
         Map<String, Object> result = new HashMap<>();
         result.put("tradeDate", latestTradeDate);
@@ -84,8 +88,134 @@ public class EtfFiveDimensionResonanceServiceImpl extends ServiceImpl<EtfFiveDim
         result.put("existingCount", existingCount);
         result.put("hadLatestData", existingCount > 0);
         result.put("latestBatchDate", latestBatchDate);
-        result.put("previousBatchDate", previousBatchDate);
+        result.put("previousTradeDate", previousTradeDate);
         return result;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> backfillByDateRange(String startDate, String endDate) {
+        LocalDate start = parseDate(startDate);
+        LocalDate end = parseDate(endDate);
+        if (start == null || end == null) {
+            throw new IllegalArgumentException("开始日期和结束日期不能为空，格式应为yyyy-MM-dd");
+        }
+        if (start.isAfter(end)) {
+            throw new IllegalArgumentException("开始日期不能大于结束日期");
+        }
+
+        List<String> tradeDates = baseMapper.selectDayTradeDates(start.toString(), end.toString());
+        if (tradeDates == null || tradeDates.isEmpty()) {
+            throw new IllegalStateException("指定范围内没有可用的日线技术指标数据，无法补算");
+        }
+
+        int totalRows = 0;
+        for (String tradeDate : tradeDates) {
+            String latestBatchDate = baseMapper.selectLatestBatchDateByTradeDate(tradeDate);
+            if (latestBatchDate == null || latestBatchDate.trim().isEmpty()) {
+                continue;
+            }
+            String previousTradeDate = baseMapper.selectPreviousTradeDateByTradeDate(tradeDate);
+            totalRows += baseMapper.upsertByBatchDate(latestBatchDate, previousTradeDate, tradeDate);
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("startDate", start.toString());
+        result.put("endDate", end.toString());
+        result.put("tradeDateCount", tradeDates.size());
+        result.put("affectedRows", totalRows);
+        return result;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> backfillAll() {
+        List<String> tradeDates = baseMapper.selectAllDayTradeDates();
+        if (tradeDates == null || tradeDates.isEmpty()) {
+            throw new IllegalStateException("没有可用的日线技术指标数据，无法全量补算");
+        }
+
+        int totalRows = baseMapper.upsertAllHistory();
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("tradeDateCount", tradeDates.size());
+        result.put("affectedRows", totalRows);
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> submitRefreshLatestTradeDate() {
+        ensureTaskAvailable();
+        String taskId = UUID.randomUUID().toString();
+        Map<String, Object> task = createTask(taskId, "latest");
+        CompletableFuture.runAsync(() -> runTask(taskId, () -> refreshLatestTradeDate()))
+                .exceptionally(error -> null);
+        return task;
+    }
+
+    @Override
+    public Map<String, Object> submitBackfillByDateRange(String startDate, String endDate) {
+        LocalDate start = parseDate(startDate);
+        LocalDate end = parseDate(endDate);
+        if (start == null || end == null || start.isAfter(end)) {
+            throw new IllegalArgumentException("请输入有效日期范围，且开始日期不能大于结束日期");
+        }
+        ensureTaskAvailable();
+        String taskId = UUID.randomUUID().toString();
+        Map<String, Object> task = createTask(taskId, "backfill");
+        CompletableFuture.runAsync(() -> runTask(taskId, () -> backfillByDateRange(start.toString(), end.toString())))
+                .exceptionally(error -> null);
+        return task;
+    }
+
+    @Override
+    public Map<String, Object> submitBackfillAll() {
+        ensureTaskAvailable();
+        String taskId = UUID.randomUUID().toString();
+        Map<String, Object> task = createTask(taskId, "backfill-all");
+        CompletableFuture.runAsync(() -> runTask(taskId, this::backfillAll))
+                .exceptionally(error -> null);
+        return task;
+    }
+
+    @Override
+    public Map<String, Object> getTaskStatus(String taskId) {
+        Map<String, Object> task = tasks.get(taskId);
+        if (task == null) {
+            throw new IllegalArgumentException("任务不存在或已过期");
+        }
+        return new HashMap<>(task);
+    }
+
+    private Map<String, Object> createTask(String taskId, String type) {
+        Map<String, Object> task = new ConcurrentHashMap<>();
+        task.put("taskId", taskId);
+        task.put("type", type);
+        task.put("status", "RUNNING");
+        task.put("message", "任务已提交，正在后台计算");
+        tasks.put(taskId, task);
+        return new HashMap<>(task);
+    }
+
+    private void runTask(String taskId, java.util.function.Supplier<Map<String, Object>> action) {
+        Map<String, Object> task = tasks.get(taskId);
+        try {
+            Map<String, Object> result = action.get();
+            task.putAll(result);
+            task.put("status", "SUCCESS");
+            task.put("message", "任务完成");
+        } catch (Exception ex) {
+            task.put("status", "FAILED");
+            task.put("message", ex.getMessage() == null ? "任务执行失败" : ex.getMessage());
+        } finally {
+            taskRunning.set(false);
+        }
+    }
+
+    private void ensureTaskAvailable() {
+        if (!taskRunning.compareAndSet(false, true)) {
+            throw new IllegalStateException("已有五维共振任务正在执行，请等待完成");
+        }
     }
 
     private QueryWrapper<EtfFiveDimensionResonance> buildWrapper(PageParam param) {

@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 @Data
 @TableName("etl_batch_status")
 public class EtlBatchStatus {
-    @TableId(type = IdType.AUTO)
+    @TableId(type = IdType.ASSIGN_ID)
     private Long id;
 
     @TableField("batch_no")

@@ -5,6 +5,7 @@ import com.demo.service.EtfFiveDimensionResonanceService;
 import com.demo.vo.PageParam;
 import com.demo.vo.PageResult;
 import com.demo.vo.R;
+import com.demo.dto.DateRangeParam;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -41,7 +42,22 @@ public class EtfFiveDimensionResonanceController {
 
     @PostMapping("/refresh-latest")
     public R<Map<String, Object>> refreshLatest() {
-        return R.ok(baseService.refreshLatestTradeDate());
+        return R.ok(baseService.submitRefreshLatestTradeDate());
+    }
+
+    @PostMapping("/backfill")
+    public R<Map<String, Object>> backfill(@RequestBody DateRangeParam param) {
+        return R.ok(baseService.submitBackfillByDateRange(param.getStartDate(), param.getEndDate()));
+    }
+
+    @PostMapping("/backfill-all")
+    public R<Map<String, Object>> backfillAll() {
+        return R.ok(baseService.submitBackfillAll());
+    }
+
+    @GetMapping("/tasks/{taskId}")
+    public R<Map<String, Object>> taskStatus(@PathVariable String taskId) {
+        return R.ok(baseService.getTaskStatus(taskId));
     }
 
     @GetMapping("/{id}")

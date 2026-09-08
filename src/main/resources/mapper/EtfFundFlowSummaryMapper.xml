@@ -5,7 +5,8 @@
 <mapper namespace="com.demo.mapper.EtfFundFlowSummaryMapper">
 
     <insert id="insertAccumulatedByDateRange">
-        INSERT IGNORE INTO etf_fund_flow_summary (
+        <![CDATA[
+        INSERT INTO etf_fund_flow_summary (
             etf_code, etf_name, trade_date, fund_share_today, share_change,
             close_price, fund_flow, cumulative_flow, ann_date, change_reason
         )
@@ -21,39 +22,99 @@
             f.ann_date,
             f.change_reason
         FROM (
+            -- 用 etf_security_master 拿到每个 etf 的 market（SH/SZ），
+            -- 配合 trade_calendar 找"上一交易日"，全程不碰 etf_market_kline 做 GROUP BY
             SELECT
                 t1.etf_code,
                 t1.change_date AS trade_date,
                 t1.ann_date,
                 t1.fund_share AS fund_share_today,
-                COALESCE(t1.fund_share - LAG(t1.fund_share) OVER (PARTITION BY t1.etf_code ORDER BY t1.change_date), 0) AS share_change,
+                COALESCE(t1.fund_share - prev.prev_fund_share, 0) AS share_change,
                 t3.close_price,
                 ROUND(
-                    COALESCE(t1.fund_share - LAG(t1.fund_share) OVER (PARTITION BY t1.etf_code ORDER BY t1.change_date), 0)
+                    COALESCE(t1.fund_share - prev.prev_fund_share, 0)
                     * COALESCE(t3.close_price, 0) * 10000,
                     2
                 ) AS fund_flow,
                 t1.change_reason
             FROM etf_fund_share t1
+            -- 一次性算出"每个 (etf, change_date) 的上一交易日 fund_share"
+            LEFT JOIN (
+                SELECT
+                    fs.etf_code,
+                    fs.change_date,
+                    (
+                        SELECT fs2.fund_share
+                        FROM etf_fund_share fs2
+                        INNER JOIN etf_security_master sm
+                            ON sm.etf_code = fs.etf_code
+                        WHERE fs2.etf_code = fs.etf_code
+                          AND fs2.change_date = (
+                              -- 上一交易日 = trade_calendar 中 market=sm.market 且 < fs.change_date 的最大交易日
+                              SELECT MAX(tc2.trade_date)
+                              FROM trade_calendar tc2
+                              WHERE tc2.market = sm.market
+                                AND tc2.is_open = 1
+                                AND tc2.trade_date < fs.change_date
+                          )
+                        LIMIT 1
+                    ) AS prev_fund_share
+                FROM etf_fund_share fs
+                WHERE fs.change_date BETWEEN #{startDate} AND #{endDate}
+            ) prev ON prev.etf_code = t1.etf_code AND prev.change_date = t1.change_date
+            -- close_price 用 etf_market_kline，但加 period 限制走索引
             LEFT JOIN etf_market_kline t3
-                ON t1.etf_code = t3.etf_code
-                AND t3.trade_time = t1.change_date
+                ON t3.period = 'day'
+               AND t3.etf_code = t1.etf_code
+               AND DATE(t3.trade_time) = t1.change_date
             WHERE t1.change_date BETWEEN #{startDate} AND #{endDate}
         ) f
-        LEFT JOIN etf_security_master m ON f.etf_code = m.etf_code
+        LEFT JOIN etf_security_master m ON m.etf_code = f.etf_code
+        ON DUPLICATE KEY UPDATE
+            etf_name = VALUES(etf_name),
+            fund_share_today = VALUES(fund_share_today),
+            share_change = VALUES(share_change),
+            close_price = VALUES(close_price),
+            fund_flow = VALUES(fund_flow),
+            ann_date = VALUES(ann_date),
+            change_reason = VALUES(change_reason)
+        ]]>
     </insert>
 
     <update id="updateCumulativeFlowByDateRange">
+        <![CDATA[
         UPDATE etf_fund_flow_summary t
         JOIN (
             SELECT
-                etf_code,
-                trade_date,
-                SUM(fund_flow) OVER (PARTITION BY etf_code ORDER BY trade_date ROWS UNBOUNDED PRECEDING) AS cum_flow
-            FROM etf_fund_flow_summary
-            WHERE trade_date BETWEEN #{startDate} AND #{endDate}
-        ) c ON t.etf_code = c.etf_code AND t.trade_date = c.trade_date
-        SET t.cumulative_flow = c.cum_flow
+                c.etf_code,
+                c.trade_date,
+                ROUND(
+                    COALESCE(baseline.base, 0)
+                    + SUM(c.fund_flow) OVER (
+                        PARTITION BY c.etf_code ORDER BY c.trade_date
+                        ROWS UNBOUNDED PRECEDING
+                    ),
+                    2
+                ) AS cum_flow
+            FROM etf_fund_flow_summary c
+            -- 一次性算每个 etf 的"start_date 之前最后一条 cumulative_flow"基线
+            LEFT JOIN (
+                SELECT s2.etf_code, s2.cumulative_flow AS base
+                FROM etf_fund_flow_summary s2
+                INNER JOIN (
+                    SELECT etf_code, MAX(trade_date) AS last_dt
+                    FROM etf_fund_flow_summary
+                    WHERE trade_date < #{startDate}
+                      AND cumulative_flow IS NOT NULL
+                    GROUP BY etf_code
+                ) m
+                    ON m.etf_code = s2.etf_code AND m.last_dt = s2.trade_date
+                WHERE s2.cumulative_flow IS NOT NULL
+            ) baseline ON baseline.etf_code = c.etf_code
+            WHERE c.trade_date BETWEEN #{startDate} AND #{endDate}
+        ) calc ON t.etf_code = calc.etf_code AND t.trade_date = calc.trade_date
+        SET t.cumulative_flow = calc.cum_flow
+        ]]>
     </update>
 
 </mapper>

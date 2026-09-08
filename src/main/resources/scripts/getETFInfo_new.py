@@ -17,14 +17,15 @@ python etf_etl.py
 """
 
 import math
+import sys
+import time
 import traceback
-from datetime import datetime, date, time
+from datetime import datetime, date
 from typing import List, Tuple, Dict, Any, Optional
 
 import numpy as np
 import pandas as pd
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import IntegrityError
 
 import AmazingData as ad
 
@@ -51,6 +52,17 @@ PERIOD_MAPPING = {
 
 # 任务名称常量
 JOB_NAME = "ETF_DATA_ETL"
+_LAST_GENERATED_ID = 0
+
+
+def generate_bigint_id() -> int:
+    """生成兼容 BIGINT 的主键值（应用侧生成，避免依赖 AUTO_INCREMENT）"""
+    global _LAST_GENERATED_ID
+    candidate = int(time.time_ns())
+    if candidate <= _LAST_GENERATED_ID:
+        candidate = _LAST_GENERATED_ID + 1
+    _LAST_GENERATED_ID = candidate
+    return candidate
 
 
 class Config:
@@ -161,6 +173,7 @@ class Config:
             "KLINE_PERIOD_NAMES": ["day", "week", "month", "season", "year"],
             "TARGET_PERIODS": ["day", "week", "month", "season"],
             "LOOKBACK_BARS": 500,
+            "L2_UPSERT_BATCH_SIZE": 2000,
             "SAR_N": 4,
             "SAR_AF_STEP": 0.02,
             "SAR_AF_MAX": 0.20,
@@ -535,14 +548,19 @@ class BatchStatusManager:
     def update_checkpoint(self, checkpoint_key: str, trade_date: int, batch_no: str):
         """更新检查点"""
         sql = """
-        INSERT INTO etl_checkpoint (checkpoint_key, last_trade_date, last_batch_no)
-        VALUES (:key, :trade_date, :batch_no)
+        INSERT INTO etl_checkpoint (id, checkpoint_key, last_trade_date, last_batch_no)
+        VALUES (:id, :key, :trade_date, :batch_no)
         ON DUPLICATE KEY UPDATE
             last_trade_date = VALUES(last_trade_date),
             last_batch_no = VALUES(last_batch_no)
         """
         with self.engine.begin() as conn:
-            conn.execute(text(sql), {"key": checkpoint_key, "trade_date": trade_date, "batch_no": batch_no})
+            conn.execute(text(sql), {
+                "id": generate_bigint_id(),
+                "key": checkpoint_key,
+                "trade_date": trade_date,
+                "batch_no": batch_no
+            })
         print(f"[INFO] 更新检查点: {checkpoint_key} -> {trade_date} (batch: {batch_no})")
     
     def start_batch(self, batch_no: str, trade_date_start: int, trade_date_end: int) -> bool:
@@ -559,11 +577,12 @@ class BatchStatusManager:
         
         sql = """
         INSERT INTO etl_batch_status 
-        (batch_no, job_name, start_time, status, trade_date_start, trade_date_end)
-        VALUES (:batch_no, :job_name, :start_time, 'RUNNING', :start_date, :end_date)
+        (id, batch_no, job_name, start_time, status, trade_date_start, trade_date_end)
+        VALUES (:id, :batch_no, :job_name, :start_time, 'RUNNING', :start_date, :end_date)
         """
         with self.engine.begin() as conn:
             conn.execute(text(sql), {
+                "id": generate_bigint_id(),
                 "batch_no": batch_no,
                 "job_name": JOB_NAME,
                 "start_time": datetime.now(),
@@ -593,6 +612,18 @@ class BatchStatusManager:
             })
         print(f"[INFO] 批次完成: {batch_no}, 状态: {status}")
     
+    def add_kline_progress(self, batch_no: str, delta: int):
+        """累加批次的已写入条数（供前端实时查看进度）"""
+        if not delta:
+            return
+        sql = """
+        UPDATE etl_batch_status
+        SET kline_count = COALESCE(kline_count, 0) + :delta
+        WHERE batch_no = :batch_no
+        """
+        with self.engine.begin() as conn:
+            conn.execute(text(sql), {"delta": delta, "batch_no": batch_no})
+
     def get_failed_batches(self) -> List[dict]:
         """获取失败的批次"""
         sql = """
@@ -640,10 +671,6 @@ class TradeDateCalculator:
 
         if run_mode == "full":
             trade_dates = candidate_dates
-            max_days = config.MAX_PROCESS_DAYS
-            if len(trade_dates) > max_days:
-                trade_dates = trade_dates[-max_days:]
-                print(f"[WARN] full 模式交易日超过 {max_days}，仅处理最近 {max_days} 天")
             start_date = trade_dates[0]
             end_date = trade_dates[-1]
             print(f"[INFO] full 模式: {len(trade_dates)} 天, 范围: {start_date} - {end_date}")
@@ -841,6 +868,9 @@ class AmazingDataETFExtractor:
     def get_kline_for_dates(self, etf_codes: List[str], trade_dates: List[int]) -> pd.DataFrame:
         if not trade_dates:
             return pd.DataFrame()
+
+        if self.market_data is None:
+            raise RuntimeError("market_data 未初始化，无法拉取K线；请检查 ENABLE_ETF_MARKET_KLINE 开关是否被意外开启（例如 --ta-only 模式覆盖顺序问题）")
 
         begin_date = min(trade_dates)
         end_date = max(trade_dates)
@@ -1100,6 +1130,7 @@ class MysqlWriter:
 
             full_code, market = split_code_market(str(etf_code).strip())
             rows.append({
+                "id": generate_bigint_id(),
                 "etf_code": full_code,
                 "market": market,
                 "symbol": None if pd.isna(r.get("symbol")) else r.get("symbol"),
@@ -1119,9 +1150,9 @@ class MysqlWriter:
 
         sql = """
         INSERT INTO etf_security_master
-        (etf_code, market, symbol, security_status, pre_close, high_limited, low_limited, price_tick, is_active, source, etl_batch_no)
+        (id, etf_code, market, symbol, security_status, pre_close, high_limited, low_limited, price_tick, is_active, source, etl_batch_no)
         VALUES
-        (:etf_code, :market, :symbol, :security_status, :pre_close, :high_limited, :low_limited, :price_tick, :is_active, :source, :etl_batch_no)
+        (:id, :etf_code, :market, :symbol, :security_status, :pre_close, :high_limited, :low_limited, :price_tick, :is_active, :source, :etl_batch_no)
         ON DUPLICATE KEY UPDATE
             market = VALUES(market), symbol = VALUES(symbol), security_status = VALUES(security_status),
             pre_close = VALUES(pre_close), high_limited = VALUES(high_limited), low_limited = VALUES(low_limited),
@@ -1138,6 +1169,7 @@ class MysqlWriter:
         rows = []
         for _, r in df.iterrows():
             rows.append({
+                "id": generate_bigint_id(),
                 "market": None if pd.isna(r.get("market")) else r.get("market"),
                 "trade_date": safe_date(r.get("trade_date")),
                 "is_open": safe_int(r.get("is_open")) or 1,
@@ -1149,9 +1181,9 @@ class MysqlWriter:
 
         sql = """
         INSERT INTO trade_calendar
-        (market, trade_date, is_open, source, etl_batch_no)
+        (id, market, trade_date, is_open, source, etl_batch_no)
         VALUES
-        (:market, :trade_date, :is_open, :source, :etl_batch_no)
+        (:id, :market, :trade_date, :is_open, :source, :etl_batch_no)
         ON DUPLICATE KEY UPDATE
             is_open = VALUES(is_open), source = VALUES(source),
             etl_batch_no = VALUES(etl_batch_no), updated_at = CURRENT_TIMESTAMP
@@ -1172,6 +1204,7 @@ class MysqlWriter:
                 continue
 
             cleaned = {
+                "id": generate_bigint_id(),
                 "etf_code": None if pd.isna(r.get("etf_code")) else r.get("etf_code"),
                 "period": None if pd.isna(r.get("period")) else r.get("period"),
                 "trade_time": safe_datetime(r.get("trade_time")),
@@ -1192,10 +1225,10 @@ class MysqlWriter:
 
         sql = """
         INSERT INTO etf_market_kline (
-            etf_code, period, trade_time, open_price, high_price, low_price,
+            id, etf_code, period, trade_time, open_price, high_price, low_price,
             close_price, volume, amount, source, etl_batch_no
         ) VALUES (
-            :etf_code, :period, :trade_time, :open_price, :high_price,
+            :id, :etf_code, :period, :trade_time, :open_price, :high_price,
             :low_price, :close_price, :volume, :amount, :source, :etl_batch_no
         )
         ON DUPLICATE KEY UPDATE
@@ -1219,6 +1252,7 @@ class MysqlWriter:
                 continue
 
             cleaned = {
+                "id": generate_bigint_id(),
                 "etf_code": None if pd.isna(r.get("etf_code")) else r.get("etf_code"),
                 "trading_day": safe_date(r.get("trading_day")),
                 "pre_trading_day": safe_date(r.get("pre_trading_day")),
@@ -1258,7 +1292,7 @@ class MysqlWriter:
 
         sql = """
         INSERT INTO etf_pcf_info (
-            etf_code, trading_day, pre_trading_day, creation_redemption_unit, max_cash_ratio,
+            id, etf_code, trading_day, pre_trading_day, creation_redemption_unit, max_cash_ratio,
             publish, creation, redemption, creation_redemption_switch, record_num, total_record_num,
             estimate_cash_component, cash_component, nav_per_cu, nav, symbol, fund_management_company,
             underlying_security_id, underlying_security_id_source, dividend_per_cu, creation_limit,
@@ -1266,7 +1300,7 @@ class MysqlWriter:
             net_redemption_limit, net_creation_limit_per_user, net_redemption_limit_per_user,
             source, etl_batch_no
         ) VALUES (
-            :etf_code, :trading_day, :pre_trading_day, :creation_redemption_unit, :max_cash_ratio,
+            :id, :etf_code, :trading_day, :pre_trading_day, :creation_redemption_unit, :max_cash_ratio,
             :publish, :creation, :redemption, :creation_redemption_switch, :record_num, :total_record_num,
             :estimate_cash_component, :cash_component, :nav_per_cu, :nav, :symbol, :fund_management_company,
             :underlying_security_id, :underlying_security_id_source, :dividend_per_cu, :creation_limit,
@@ -1308,6 +1342,7 @@ class MysqlWriter:
                 continue
 
             cleaned = {
+                "id": generate_bigint_id(),
                 "etf_code": None if pd.isna(r.get("etf_code")) else r.get("etf_code"),
                 "trading_day": safe_date(r.get("trading_day")),
                 "constituent_code": None if pd.isna(r.get("constituent_code")) else str(r.get("constituent_code")),
@@ -1331,12 +1366,12 @@ class MysqlWriter:
 
         sql = """
         INSERT INTO etf_pcf_constituent (
-            etf_code, trading_day, constituent_code, underlying_symbol, component_share,
+            id, etf_code, trading_day, constituent_code, underlying_symbol, component_share,
             substitute_flag, premium_ratio, discount_ratio, creation_cash_substitute,
             redemption_cash_substitute, substitution_cash_amount, underlying_security_id,
             source, etl_batch_no
         ) VALUES (
-            :etf_code, :trading_day, :constituent_code, :underlying_symbol, :component_share,
+            :id, :etf_code, :trading_day, :constituent_code, :underlying_symbol, :component_share,
             :substitute_flag, :premium_ratio, :discount_ratio, :creation_cash_substitute,
             :redemption_cash_substitute, :substitution_cash_amount, :underlying_security_id,
             :source, :etl_batch_no
@@ -1366,6 +1401,7 @@ class MysqlWriter:
                 continue
 
             cleaned = {
+                "id": generate_bigint_id(),
                 "etf_code": None if pd.isna(r.get("etf_code")) else r.get("etf_code"),
                 "change_date": safe_date(r.get("change_date")),
                 "ann_date": safe_date(r.get("ann_date")),
@@ -1385,10 +1421,10 @@ class MysqlWriter:
 
         sql = """
         INSERT INTO etf_fund_share (
-            etf_code, change_date, ann_date, fund_share, total_share, float_share,
+            id, etf_code, change_date, ann_date, fund_share, total_share, float_share,
             change_reason, is_consolidated_data, source, etl_batch_no
         ) VALUES (
-            :etf_code, :change_date, :ann_date, :fund_share, :total_share, :float_share,
+            :id, :etf_code, :change_date, :ann_date, :fund_share, :total_share, :float_share,
             :change_reason, :is_consolidated_data, :source, :etl_batch_no
         )
         ON DUPLICATE KEY UPDATE
@@ -1413,6 +1449,7 @@ class MysqlWriter:
                 continue
 
             cleaned = {
+                "id": generate_bigint_id(),
                 "etf_code": None if pd.isna(r.get("etf_code")) else r.get("etf_code"),
                 "price_date": safe_date(r.get("price_date")),
                 "iopv_nav": safe_decimal(r.get("iopv_nav")),
@@ -1427,9 +1464,9 @@ class MysqlWriter:
 
         sql = """
         INSERT INTO etf_fund_iopv (
-            etf_code, price_date, iopv_nav, source, etl_batch_no
+            id, etf_code, price_date, iopv_nav, source, etl_batch_no
         ) VALUES (
-            :etf_code, :price_date, :iopv_nav, :source, :etl_batch_no
+            :id, :etf_code, :price_date, :iopv_nav, :source, :etl_batch_no
         )
         ON DUPLICATE KEY UPDATE
             iopv_nav = VALUES(iopv_nav), source = VALUES(source),
@@ -1437,11 +1474,15 @@ class MysqlWriter:
         """
         self.execute_many(sql, rows)
 
-    def upsert_etf_ta_indicator(self, df: pd.DataFrame):
-        """技术指标写入（INSERT ONLY，重复跳过）"""
+    def upsert_etf_ta_indicator(self, df: pd.DataFrame, batch_no: str = None, batch_manager=None, upsert_batch_size: int = 2000):
+        """技术指标写入：分批 upsert，每批提交后同步更新 etl_batch_status.kline_count
+
+        batch_no + batch_manager 同时提供时，每个子批提交后立即把批次进度
+        累加写入 etl_batch_status.kline_count，前端可实时看到已插入条数。
+        """
         if df.empty:
             print("[WARN] etf_ta_indicator 没有可写入数据，跳过")
-            return
+            return 0
 
         rows = []
         for _, r in df.iterrows():
@@ -1518,22 +1559,39 @@ class MysqlWriter:
             :signal_trend_long, :signal_momentum_long, :signal_warning, 
             :source, :etl_batch_no, :created_at, :updated_at 
         )
+        ON DUPLICATE KEY UPDATE
+            open_price = VALUES(open_price), high_price = VALUES(high_price),
+            low_price = VALUES(low_price), close_price = VALUES(close_price),
+            volume = VALUES(volume), amount = VALUES(amount),
+            dif = VALUES(dif), dea = VALUES(dea), macd = VALUES(macd),
+            is_macd_golden_cross = VALUES(is_macd_golden_cross),
+            is_macd_dead_cross = VALUES(is_macd_dead_cross),
+            is_macd_golden_state = VALUES(is_macd_golden_state),
+            is_macd_positive = VALUES(is_macd_positive), is_macd_red = VALUES(is_macd_red),
+            macd_hist_direction = VALUES(macd_hist_direction),
+            sar_value = VALUES(sar_value), is_sar_bullish = VALUES(is_sar_bullish),
+            sar_trend = VALUES(sar_trend), ma5 = VALUES(ma5), ma10 = VALUES(ma10),
+            ma20 = VALUES(ma20), ma30 = VALUES(ma30), ma60 = VALUES(ma60),
+            is_ma5_above_ma10 = VALUES(is_ma5_above_ma10),
+            is_ma10_above_ma20 = VALUES(is_ma10_above_ma20),
+            is_close_above_ma20 = VALUES(is_close_above_ma20),
+            is_close_above_ma60 = VALUES(is_close_above_ma60),
+            rsi6 = VALUES(rsi6), rsi12 = VALUES(rsi12), rsi24 = VALUES(rsi24),
+            k_value = VALUES(k_value), d_value = VALUES(d_value), j_value = VALUES(j_value),
+            boll_mid = VALUES(boll_mid), boll_upper = VALUES(boll_upper),
+            boll_lower = VALUES(boll_lower), atr14 = VALUES(atr14), adx14 = VALUES(adx14),
+            signal_trend_long = VALUES(signal_trend_long),
+            signal_momentum_long = VALUES(signal_momentum_long),
+            signal_warning = VALUES(signal_warning), source = VALUES(source),
+            etl_batch_no = VALUES(etl_batch_no), updated_at = CURRENT_TIMESTAMP
         """
 
         ok = 0
-        dup = 0
-        for row in rows:
-            try:
-                with self.engine.begin() as conn:
-                    conn.execute(text(insert_sql), [row])
-                ok += 1
-            except IntegrityError as e:
-                if is_duplicate_key_error(e):
-                    dup += 1
-                else:
-                    raise
+        with self.engine.begin() as conn:
+            conn.execute(text(insert_sql), rows)
+            ok = len(rows)
 
-        print(f"[INFO] etf_ta_indicator 写入完成: ok={ok}, duplicate_skipped={dup}, total={len(rows)}")
+        print(f"[INFO] etf_ta_indicator 写入完成: ok={ok}, total={len(rows)}")
 
 
 # =========================
@@ -1607,11 +1665,11 @@ class TechnicalIndicatorCalculator:
     @staticmethod
     def calc_ma(df: pd.DataFrame) -> pd.DataFrame:
         close = df["close_price"]
-        df["ma5"] = close.rolling(window=5, min_periods=1).mean()
-        df["ma10"] = close.rolling(window=10, min_periods=1).mean()
-        df["ma20"] = close.rolling(window=20, min_periods=1).mean()
-        df["ma30"] = close.rolling(window=30, min_periods=1).mean()
-        df["ma60"] = close.rolling(window=60, min_periods=1).mean()
+        df["ma5"] = close.rolling(window=5, min_periods=5).mean()
+        df["ma10"] = close.rolling(window=10, min_periods=10).mean()
+        df["ma20"] = close.rolling(window=20, min_periods=20).mean()
+        df["ma30"] = close.rolling(window=30, min_periods=30).mean()
+        df["ma60"] = close.rolling(window=60, min_periods=60).mean()
 
         df["is_ma5_above_ma10"] = (df["ma5"] > df["ma10"]).astype(int)
         df["is_ma10_above_ma20"] = (df["ma10"] > df["ma20"]).astype(int)
@@ -1625,11 +1683,27 @@ class TechnicalIndicatorCalculator:
         gain = delta.clip(lower=0)
         loss = -delta.clip(upper=0)
 
-        avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
-        avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+        avg_gain = pd.Series(np.nan, index=series.index, dtype="float64")
+        avg_loss = pd.Series(np.nan, index=series.index, dtype="float64")
+        if len(series) <= period:
+            return avg_gain
 
-        rs = avg_gain / avg_loss.replace(0, np.nan)
-        return 100 - (100 / (1 + rs))
+        first = period
+        avg_gain.iloc[first] = gain.iloc[1:first + 1].mean()
+        avg_loss.iloc[first] = loss.iloc[1:first + 1].mean()
+        for i in range(first + 1, len(series)):
+            avg_gain.iloc[i] = ((period - 1) * avg_gain.iloc[i - 1] + gain.iloc[i]) / period
+            avg_loss.iloc[i] = ((period - 1) * avg_loss.iloc[i - 1] + loss.iloc[i]) / period
+
+        rsi = pd.Series(np.nan, index=series.index, dtype="float64")
+        no_loss = avg_loss == 0
+        no_change = no_loss & (avg_gain == 0)
+        rsi[no_loss & ~no_change] = 100.0
+        rsi[no_change] = 50.0
+        valid = ~no_loss
+        rs = avg_gain[valid] / avg_loss[valid]
+        rsi.loc[valid] = 100 - (100 / (1 + rs))
+        return rsi
 
     @staticmethod
     def calc_rsi_group(df: pd.DataFrame) -> pd.DataFrame:
@@ -1641,24 +1715,22 @@ class TechnicalIndicatorCalculator:
 
     @staticmethod
     def calc_kdj(df: pd.DataFrame, n=9) -> pd.DataFrame:
-        low_n = df["low_price"].rolling(window=n, min_periods=1).min()
-        high_n = df["high_price"].rolling(window=n, min_periods=1).max()
+        low_n = df["low_price"].rolling(window=n, min_periods=n).min()
+        high_n = df["high_price"].rolling(window=n, min_periods=n).max()
 
         rsv = np.where((high_n - low_n) == 0, 50, (df["close_price"] - low_n) / (high_n - low_n) * 100)
-        rsv = pd.Series(rsv, index=df.index)
+        rsv = pd.Series(rsv, index=df.index, dtype="float64")
 
-        k = pd.Series(index=df.index, dtype="float64")
-        d = pd.Series(index=df.index, dtype="float64")
-        j = pd.Series(index=df.index, dtype="float64")
+        first_valid = n - 1
 
-        for i in range(len(df)):
-            if i == 0:
-                k.iloc[i] = 50
-                d.iloc[i] = 50
-            else:
-                k.iloc[i] = (2 / 3) * k.iloc[i - 1] + (1 / 3) * rsv.iloc[i]
-                d.iloc[i] = (2 / 3) * d.iloc[i - 1] + (1 / 3) * k.iloc[i]
-            j.iloc[i] = 3 * k.iloc[i] - 2 * d.iloc[i]
+        # 向量化递推：K = (2/3)K_prev + (1/3)RSV，D = (2/3)D_prev + (1/3)K
+        # 用 ewm(alpha=1/3, adjust=False) 等价实现 prev*(2/3)+cur*(1/3)，避免逐行循环
+        k = rsv.ewm(alpha=1 / 3, adjust=False).mean()
+        d = k.ewm(alpha=1 / 3, adjust=False).mean()
+        # 不足完整窗口的预热位置置空；首个有效位置从初值 50 起步
+        k.iloc[:first_valid] = np.nan
+        d.iloc[:first_valid] = np.nan
+        j = 3 * k - 2 * d
 
         df["k_value"] = k
         df["d_value"] = d
@@ -1667,8 +1739,8 @@ class TechnicalIndicatorCalculator:
 
     @staticmethod
     def calc_boll(df: pd.DataFrame, n=20, k=2) -> pd.DataFrame:
-        mid = df["close_price"].rolling(window=n, min_periods=1).mean()
-        std = df["close_price"].rolling(window=n, min_periods=1).std(ddof=0)
+        mid = df["close_price"].rolling(window=n, min_periods=n).mean()
+        std = df["close_price"].rolling(window=n, min_periods=n).std(ddof=0)
         df["boll_mid"] = mid
         df["boll_upper"] = mid + k * std
         df["boll_lower"] = mid - k * std
@@ -1697,12 +1769,24 @@ class TechnicalIndicatorCalculator:
         plus_dm = pd.Series(plus_dm, index=df.index)
         minus_dm = pd.Series(minus_dm, index=df.index)
 
-        atr = tr.ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
-        plus_di = 100 * plus_dm.ewm(alpha=1 / n, adjust=False, min_periods=n).mean() / atr.replace(0, np.nan)
-        minus_di = 100 * minus_dm.ewm(alpha=1 / n, adjust=False, min_periods=n).mean() / atr.replace(0, np.nan)
+        atr = tr.rolling(window=n, min_periods=n).mean()
+        smoothed_plus_dm = plus_dm.rolling(window=n, min_periods=n).mean()
+        smoothed_minus_dm = minus_dm.rolling(window=n, min_periods=n).mean()
+        for i in range(n, len(df)):
+            atr.iloc[i] = (atr.iloc[i - 1] * (n - 1) + tr.iloc[i]) / n
+            smoothed_plus_dm.iloc[i] = (smoothed_plus_dm.iloc[i - 1] * (n - 1) + plus_dm.iloc[i]) / n
+            smoothed_minus_dm.iloc[i] = (smoothed_minus_dm.iloc[i - 1] * (n - 1) + minus_dm.iloc[i]) / n
+
+        plus_di = 100 * smoothed_plus_dm / atr.replace(0, np.nan)
+        minus_di = 100 * smoothed_minus_dm / atr.replace(0, np.nan)
 
         dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
-        adx = dx.ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+        adx = pd.Series(np.nan, index=df.index, dtype="float64")
+        first_adx = 2 * n - 2
+        if len(df) > first_adx:
+            adx.iloc[first_adx] = dx.iloc[n - 1:first_adx + 1].mean()
+            for i in range(first_adx + 1, len(df)):
+                adx.iloc[i] = (adx.iloc[i - 1] * (n - 1) + dx.iloc[i]) / n
 
         df["atr14"] = atr
         df["adx14"] = adx
@@ -1710,7 +1794,6 @@ class TechnicalIndicatorCalculator:
 
     @staticmethod
     def calc_sar(df: pd.DataFrame, n: int = None, af_step: float = None, af_max: float = None) -> pd.DataFrame:
-        n = n or config.SAR_N
         af_step = af_step or config.SAR_AF_STEP
         af_max = af_max or config.SAR_AF_MAX
 
@@ -1722,38 +1805,26 @@ class TechnicalIndicatorCalculator:
         sar = np.full(length, np.nan, dtype=float)
         trend = np.full(length, 0, dtype=int)
 
-        if length < n:
+        if length < 2:
             df["sar_value"] = sar
             df["sar_trend"] = trend
             df["is_sar_bullish"] = 0
             return df
 
-        init_high = np.max(high[:n])
-        init_low = np.min(low[:n])
-
-        if close[n - 1] >= close[0]:
-            bull = True
-            sar[n - 1] = init_low
-            ep = init_high
-            trend[n - 1] = 1
-        else:
-            bull = False
-            sar[n - 1] = init_high
-            ep = init_low
-            trend[n - 1] = -1
-
+        bull = close[1] >= close[0]
+        sar[0] = low[0] if bull else high[0]
+        ep = high[0] if bull else low[0]
+        trend[0] = 1 if bull else -1
         af = af_step
 
-        for i in range(n, length):
+        for i in range(1, length):
             prev_sar = sar[i - 1]
 
             if bull:
                 cur_sar = prev_sar + af * (ep - prev_sar)
-                start_idx = max(0, i - n)
-                window_low = np.min(low[start_idx:i]) if i > start_idx else low[i - 1]
-                cur_sar = min(cur_sar, window_low)
+                cur_sar = min(cur_sar, low[i - 1], low[i - 2] if i > 1 else low[i - 1])
 
-                if low[i] <= cur_sar:
+                if low[i] < cur_sar:
                     bull = False
                     sar[i] = ep
                     ep = low[i]
@@ -1767,11 +1838,9 @@ class TechnicalIndicatorCalculator:
                     trend[i] = 1
             else:
                 cur_sar = prev_sar + af * (ep - prev_sar)
-                start_idx = max(0, i - n)
-                window_high = np.max(high[start_idx:i]) if i > start_idx else high[i - 1]
-                cur_sar = max(cur_sar, window_high)
+                cur_sar = max(cur_sar, high[i - 1], high[i - 2] if i > 1 else high[i - 1])
 
-                if high[i] >= cur_sar:
+                if high[i] > cur_sar:
                     bull = True
                     sar[i] = ep
                     ep = high[i]
@@ -1916,6 +1985,116 @@ def load_kline_for_indicators(engine, latest_batch_no: str) -> pd.DataFrame:
     return df_all
 
 
+def load_kline_for_indicators_by_dates(engine, start_date: int, end_date: int) -> pd.DataFrame:
+    """按日期范围从 etf_market_kline 取数据计算指标（--ta-only 专用）
+
+    周/月/季线的 trade_time 是周期起始日，可能早于窗口起点。
+    因此取数时放宽到 start_date 前 90 天，确保窗口内每天的周/月/季线都能被取到。
+    """
+    period_sql = ",".join([f"'{x}'" for x in config.TARGET_PERIODS])
+    # 周/月/季线周期起始日可能早于窗口，放宽取数范围
+    fetch_start = pd.to_datetime(str(start_date), format="%Y%m%d") - pd.Timedelta(days=90)
+    fetch_start_int = int(fetch_start.strftime("%Y%m%d"))
+
+    sql = f"""
+    SELECT
+        etf_code, period, trade_time, open_price, high_price, low_price, close_price,
+        volume, amount, source, etl_batch_no, created_at, updated_at
+    FROM etf_market_kline
+    WHERE period IN ({period_sql})
+      AND DATE(trade_time) BETWEEN :start_date AND :end_date
+    ORDER BY etf_code, period, trade_time
+    """
+    print(f"[INFO] --ta-only 按日期取K线: {start_date} - {end_date}（周/月/季线放宽到 {fetch_start_int} 起）")
+    df = pd.read_sql(text(sql), engine, params={"start_date": str(fetch_start_int), "end_date": str(end_date)})
+    if df.empty:
+        return df
+    df = TechnicalIndicatorCalculator.normalize_kline_df(df)
+    df["source"] = df["source"].fillna(config.SOURCE)
+    return df
+
+
+def filter_rows_by_date_range(df: pd.DataFrame, start_date: int, end_date: int) -> pd.DataFrame:
+    """只保留日期范围内的指标行（ta-only 模式：每天4条，10天=40条）"""
+    if df.empty:
+        return df
+    mask = (df["trade_time"].dt.strftime("%Y%m%d").astype(int) >= start_date) & \
+           (df["trade_time"].dt.strftime("%Y%m%d").astype(int) <= end_date)
+    return df[mask].copy().reset_index(drop=True)
+
+
+def load_kline_full_for_daily_ta(engine) -> pd.DataFrame:
+    """--ta-daily 专用：拉 day/week/month/season 全部 K 线（用于按天对齐算指标）。
+
+    不限制日期范围：为了让窗口内最早一天的指标也能量化到正确的值（MACD/RSI/KDJ 等
+    需要回看 100+ 个根），需要每个 (etf, period) 都有尽可能全的历史。
+    """
+    period_sql = ",".join([f"'{x}'" for x in config.TARGET_PERIODS])
+    sql = f"""
+    SELECT
+        etf_code, period, trade_time, open_price, high_price, low_price, close_price,
+        volume, amount, source, etl_batch_no, created_at, updated_at
+    FROM etf_market_kline
+    WHERE period IN ({period_sql})
+    ORDER BY etf_code, period, trade_time
+    """
+    print(f"[INFO] --ta-daily 加载全部 K 线（period IN ({period_sql})）用于回看计算")
+    df = pd.read_sql(text(sql), engine)
+    if df.empty:
+        return df
+    df = TechnicalIndicatorCalculator.normalize_kline_df(df)
+    df["source"] = df["source"].fillna(config.SOURCE)
+    return df
+
+
+def align_ta_to_daily(ta_df: pd.DataFrame, trade_dates: List[int], etf_codes: List[str] = None) -> pd.DataFrame:
+    """把按周期记的指标结果按"每个交易日 4 周期"对齐后写回 etf_ta_indicator。
+
+    关键：复用原表的 (etf_code, period, trade_time) 唯一键，因此"按天对齐"时把 4 个 period 的
+    trade_time 全部写成"当天的 00:00:00"——这样每天每个 ETF 4 周期各占 1 条 (etf, period, trade_time)
+    不冲突；10 天窗口就是 40 条/ETF。
+
+    查询时按 trade_time 的日期部分筛：WHERE DATE(trade_time) = '2026-06-01'
+    """
+    if ta_df.empty or not trade_dates:
+        return pd.DataFrame()
+
+    df = ta_df.copy()
+    df["trade_date_int"] = df["trade_time"].dt.strftime("%Y%m%d").astype(int)
+
+    # 仅保留窗口内会出现"有效 K 线"的 period
+    df = df[df["period"].isin(config.TARGET_PERIODS)].copy()
+    if etf_codes:
+        df = df[df["etf_code"].isin(etf_codes)].copy()
+
+    out_rows = []
+    for td in trade_dates:
+        # 当日 day 周期的所有 ETF 指标
+        today_day = df[(df["period"] == "day") & (df["trade_date_int"] == td)]
+
+        # 截至 D 为止，week/month/season 各 ETF 最近的指标行
+        for period in ("week", "month", "season"):
+            sub = df[(df["period"] == period) & (df["trade_date_int"] <= td)]
+            if sub.empty:
+                continue
+            latest = sub.sort_values("trade_time").groupby("etf_code", sort=False).tail(1)
+            latest = latest.copy()
+            # 把 trade_time 改为当天的 00:00:00，与 day 行保持同一天（unique key 不会冲突）
+            latest["trade_time"] = pd.to_datetime(str(td), format="%Y%m%d")
+            out_rows.append(latest)
+
+        if not today_day.empty:
+            day = today_day.copy()
+            day["trade_time"] = pd.to_datetime(str(td), format="%Y%m%d")
+            out_rows.append(day)
+
+    if not out_rows:
+        return pd.DataFrame()
+
+    aligned = pd.concat(out_rows, ignore_index=True)
+    return aligned
+
+
 def filter_latest_batch_rows(df: pd.DataFrame, latest_batch_no: str) -> pd.DataFrame:
     """增量模式下只保留本批次那根K线"""
     if df.empty:
@@ -1945,11 +2124,61 @@ def main():
     print(f"运行时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
 
+    # 0. 命令行参数：
+    #    --import-only  银河证券数据导入（K 线/PCF/份额/IOPV 等），不算指标
+    #    --ta-only      L2 指标计算，基于 etf_market_kline 已有数据重算 day/week/month/season
+    #    两者互斥；日期窗口/全量/增量 配置复用 sys_param 中的 RUN_MODE/RECENT_DAYS/INCLUDE_TODAY/MAX_PROCESS_DAYS
+    ta_only_mode = "--ta-only" in sys.argv
+    ta_daily_mode = "--ta-daily" in sys.argv
+    import_only_mode = "--import-only" in sys.argv
+    if sum([ta_only_mode, ta_daily_mode, import_only_mode]) > 1:
+        print("[ERROR] --ta-only / --ta-daily / --import-only 三者互斥，只能选一个")
+        return
+
     # 1. 获取 MySQL 连接（先使用默认连接读取配置）
     mysql_engine = get_mysql_engine_from_db()
     
     # 2. 加载配置
     config.load_from_db(mysql_engine)
+
+    # 2.1 模式开关覆盖必须放在 load_from_db 之后：
+    #     否则 sys_param 中的 ENABLE_* 会把下面设置的 False 重新覆盖回 True，
+    #     导致 --ta-only 模式误执行 K 线抽取（market_data 未初始化 -> query_kline 报 NoneType）
+    if ta_only_mode:
+        print("[INFO] --ta-only 模式：仅计算 L2 技术指标，跳过 K 线/PCF/份额/IOPV 抽取")
+        print("[INFO] 日期窗口/全量/增量 配置复用 sys_param：RUN_MODE/RECENT_DAYS/INCLUDE_TODAY/MAX_PROCESS_DAYS")
+        # 关闭除技术指标外的所有抽取步骤
+        config._params["ENABLE_ETF_SECURITY_MASTER"] = False
+        config._params["ENABLE_TRADE_CALENDAR"] = False
+        config._params["ENABLE_ETF_MARKET_SNAPSHOT"] = False
+        config._params["ENABLE_ETF_MARKET_KLINE"] = False
+        config._params["ENABLE_ETF_PCF_INFO"] = False
+        config._params["ENABLE_ETF_PCF_CONSTITUENT"] = False
+        config._params["ENABLE_ETF_FUND_SHARE"] = False
+        config._params["ENABLE_ETF_FUND_IOPV"] = False
+        config._params["ENABLE_TA_INDICATOR"] = True
+        # 技术指标必须覆盖四个周期
+        config._params["TARGET_PERIODS"] = ["day", "week", "month", "season"]
+        config._params["KLINE_PERIODS"] = [(p, PERIOD_MAPPING[p]) for p in ["day", "week", "month", "season"] if p in PERIOD_MAPPING]
+    elif ta_daily_mode:
+        print("[INFO] --ta-daily 模式：按天对齐 L2 技术指标，每个交易日 4 周期各一条")
+        print("[INFO] 日期窗口/全量/增量 配置复用 sys_param：RUN_MODE/RECENT_DAYS/INCLUDE_TODAY/MAX_PROCESS_DAYS")
+        # 关闭除技术指标外的所有抽取步骤
+        config._params["ENABLE_ETF_SECURITY_MASTER"] = False
+        config._params["ENABLE_TRADE_CALENDAR"] = False
+        config._params["ENABLE_ETF_MARKET_SNAPSHOT"] = False
+        config._params["ENABLE_ETF_MARKET_KLINE"] = False
+        config._params["ENABLE_ETF_PCF_INFO"] = False
+        config._params["ENABLE_ETF_PCF_CONSTITUENT"] = False
+        config._params["ENABLE_ETF_FUND_SHARE"] = False
+        config._params["ENABLE_ETF_FUND_IOPV"] = False
+        config._params["ENABLE_TA_INDICATOR"] = True
+        # 技术指标必须覆盖四个周期
+        config._params["TARGET_PERIODS"] = ["day", "week", "month", "season"]
+        config._params["KLINE_PERIODS"] = [(p, PERIOD_MAPPING[p]) for p in ["day", "week", "month", "season"] if p in PERIOD_MAPPING]
+    elif import_only_mode:
+        print("[INFO] --import-only 模式：仅导入 K 线/PCF/份额/IOPV，不计算技术指标")
+        config._params["ENABLE_TA_INDICATOR"] = False
     
     # 3. 重新创建 MySQL 引擎（使用配置中的连接信息）
     mysql_engine = get_mysql_engine_from_config()
@@ -1965,7 +2194,47 @@ def main():
     date_calculator = TradeDateCalculator(mysql_engine, extractor)
 
     # 6. 获取需要处理的日期范围
-    trade_dates, start_date, end_date = date_calculator.get_trade_dates_to_run()
+    if ta_only_mode or ta_daily_mode:
+        # --ta-only / --ta-daily：日期窗口复用 sys_param 配置（RUN_MODE/RECENT_DAYS/INCLUDE_TODAY/MAX_PROCESS_DAYS），
+        # 但交易日从 etf_market_kline 自身读取（period='day'），避免联网拉 AmazingData 日历且与"导入"按钮的 K 线对账
+        run_mode = str(config.RUN_MODE).strip().lower()
+        include_today = bool(config.INCLUDE_TODAY)
+        today_int = int(datetime.now().strftime("%Y%m%d"))
+        max_days = int(config.MAX_PROCESS_DAYS) if int(config.MAX_PROCESS_DAYS) > 0 else 30
+        recent_days = int(config.RECENT_DAYS) if int(config.RECENT_DAYS) > 0 else 1
+
+        sql_dates = """
+        SELECT DISTINCT DATE_FORMAT(trade_time, '%Y%m%d') AS d
+        FROM etf_market_kline
+        WHERE period = 'day'
+        ORDER BY d
+        """
+        df_db_dates = pd.read_sql(text(sql_dates), mysql_engine)
+        all_db_dates = sorted(int(x) for x in df_db_dates['d'].tolist() if x)
+        if not all_db_dates:
+            print("[INFO] etf_market_kline 没有 day 周期数据，无法计算 L2 指标，退出")
+            logout_amazingdata()
+            return
+
+        candidate_dates = all_db_dates if include_today else [d for d in all_db_dates if d != today_int]
+        if not candidate_dates:
+            print("[INFO] 候选交易日为空，退出")
+            logout_amazingdata()
+            return
+
+        if run_mode == "full":
+            trade_dates = candidate_dates[-max_days:] if len(candidate_dates) > max_days else candidate_dates
+        elif run_mode == "recent":
+            trade_dates = candidate_dates[-recent_days:] if recent_days > 0 else candidate_dates
+        else:  # incremental：ta-only/ta-daily 没有外部检查点概念，按 recent 处理
+            trade_dates = candidate_dates[-recent_days:]
+
+        start_date = trade_dates[0]
+        end_date = trade_dates[-1]
+        mode_tag = "--ta-daily" if ta_daily_mode else "--ta-only"
+        print(f"[INFO] {mode_tag} 日期窗口（与导入按钮共用 sys_param）: {start_date} - {end_date} ({len(trade_dates)} 天, RUN_MODE={run_mode})")
+    else:
+        trade_dates, start_date, end_date = date_calculator.get_trade_dates_to_run()
     
     if not trade_dates:
         print("[INFO] 没有需要处理的新交易日，退出")
@@ -2057,23 +2326,53 @@ def main():
         if config.ENABLE_TA_INDICATOR:
             print("[INFO] 计算技术指标...")
             latest_batch_no = get_latest_batch_no(mysql_engine)
-            kline_for_ta = load_kline_for_indicators(mysql_engine, latest_batch_no)
+            if ta_daily_mode:
+                # ta-daily：加载全部 day/week/month/season 历史 K 线，确保 MACD/RSI/KDJ 等
+                # 指标在窗口内最早一天也能量化为正确值，再按"每天 4 周期"对齐
+                kline_for_ta = load_kline_full_for_daily_ta(mysql_engine)
+            elif ta_only_mode:
+                # ta-only：直接按日期窗口从 K 线表取数计算，与导入按钮脱钩
+                kline_for_ta = load_kline_for_indicators_by_dates(mysql_engine, start_date, end_date)
+            else:
+                kline_for_ta = load_kline_for_indicators(mysql_engine, latest_batch_no)
 
             if not kline_for_ta.empty:
                 result_df = TechnicalIndicatorCalculator.calculate(kline_for_ta)
 
-                if config.is_incremental_mode() and latest_batch_no:
-                    result_df = filter_latest_batch_rows(result_df, latest_batch_no)
+                if ta_daily_mode:
+                    # --ta-daily：把 (etf, period) 的 K 线指标结果按"每个交易日"对齐为 4 条/天/ETF，
+                    # 4 个 period 的 trade_time 都用当天 00:00:00，复用 etf_ta_indicator 原表唯一键 (etf, period, trade_time) 不冲突。
+                    aligned = align_ta_to_daily(result_df, trade_dates)
+                    if aligned.empty:
+                        print("[WARN] --ta-daily 对齐后无数据，跳过写入")
+                    else:
+                        aligned["etl_batch_no"] = batch_no
+                        print(f"[INFO] --ta-daily 对齐后 rows={len(aligned)} (≈{len(trade_dates)} 天 × 4 周期 × ETF 数)")
+                        writer.upsert_etf_ta_indicator(aligned, batch_no=batch_no, batch_manager=batch_manager)
+                    print_df_basic("按天对齐结果", aligned)
+                elif ta_only_mode:
+                    # --ta-only 模式：按日期窗口过滤计算结果，只保留窗口内的指标行
+                    # 每天4条（day/week/month/season），10天=40条，而非整个回看窗口的全部历史
+                    result_df = filter_rows_by_date_range(result_df, start_date, end_date)
+                    print(f"[INFO] --ta-only 模式：按日期窗口过滤后 rows={len(result_df)}")
+                    print_df_basic("技术指标结果", result_df)
+                else:
+                    if config.is_incremental_mode() and latest_batch_no:
+                        result_df = filter_latest_batch_rows(result_df, latest_batch_no)
+                        result_df = keep_only_latest_row_per_group(result_df)
+                    print_df_basic("技术指标结果", result_df)
 
-                result_df = keep_only_latest_row_per_group(result_df)
-                print_df_basic("技术指标结果", result_df)
-
-                writer.upsert_etf_ta_indicator(result_df)
+                # 分批写入并同步更新批次进度（前端可实时看到累计条数）
+                # 注意：--ta-daily 已经在上面把 aligned 写入了 etf_ta_indicator，
+                # 此处不能再次写入 result_df，否则会把"按周期记"的数据也写进去，破坏按天对齐
+                if not ta_daily_mode:
+                    writer.upsert_etf_ta_indicator(result_df, batch_no=batch_no, batch_manager=batch_manager)
             else:
                 print("[WARN] 无K线数据，跳过技术指标计算")
 
         # 19. 标记批次成功
-        batch_manager.finish_batch(batch_no, "SUCCESS", etf_count=len(etf_codes), kline_count=kline_count)
+        # kline_count 在 L2 分批写入时已通过 add_kline_progress 累加，这里不再重复传入，避免覆盖
+        batch_manager.finish_batch(batch_no, "SUCCESS", etf_count=len(etf_codes))
         print("[INFO] 全部完成")
 
     except Exception as e:
