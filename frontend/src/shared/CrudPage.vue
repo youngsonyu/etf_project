@@ -7,6 +7,9 @@
             v-if="item.type === 'select'"
             v-model="searchForm[item.prop]"
             :placeholder="`请选择${item.label}`"
+            :multiple="item.multiple === true"
+            :collapse-tags="item.multiple === true"
+            :collapse-tags-tooltip="item.multiple === true"
             class="search-select"
             clearable
           >
@@ -244,7 +247,15 @@ function buildParams() {
     if (key === 'etfCode' || key === 'tradeDate') {
       return
     }
-    params[key] = value
+    // 多选下拉框（数组）转成逗号分隔字符串，后端用 FIND_IN_SET 匹配
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return
+      }
+      params[key] = value.join(',')
+    } else {
+      params[key] = value
+    }
   })
 
   if (searchForm.etfCode && String(searchForm.etfCode).trim() !== '') {

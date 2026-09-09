@@ -13,7 +13,7 @@
                 AND m.symbol LIKE CONCAT('%', #{etfName}, '%')
             </if>
             <if test="period != null and period != ''">
-                AND t.period = #{period}
+                AND FIND_IN_SET(t.period, #{period}) &gt; 0
             </if>
             <if test="tradeTimeDate != null and tradeTimeDate != ''">
                 AND DATE(t.trade_time) = #{tradeTimeDate}
@@ -77,7 +77,7 @@
                 AND m.symbol LIKE CONCAT('%', #{etfName}, '%')
             </if>
             <if test="period != null and period != ''">
-                AND t.period = #{period}
+                AND FIND_IN_SET(t.period, #{period}) &gt; 0
             </if>
             <if test="tradeTimeDate != null and tradeTimeDate != ''">
                 AND DATE(t.trade_time) = #{tradeTimeDate}

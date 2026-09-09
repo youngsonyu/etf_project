@@ -52,7 +52,8 @@ const searchItems = computed(() => [
     prop: 'period',
     label: '周期',
     type: 'select',
-    defaultValue: 'day',
+    multiple: true,
+    defaultValue: ['day'],
     options: [
       { label: 'year', value: 'year' },
       { label: 'month', value: 'month' },

@@ -7,11 +7,12 @@
       <el-tabs v-model="activeTab">
         <el-tab-pane label="快捷入口" name="shortcuts">
           <div class="actions">
-            <el-button type="primary" @click="go('/menu_config')">菜单配置</el-button>
-            <el-button type="success" @click="go('/sys_param')">参数配置</el-button>
-            <el-button @click="go('/trade_calendar')">交易日历</el-button>
-            <el-button type="warning" @click="go('/etl_batch_status')">ETL跑批状态</el-button>
-            <el-button type="warning" plain @click="go('/etl_checkpoint')">ETL跑批检查点</el-button>
+            <el-button v-if="!isNormalUser" type="primary" @click="go('/menu_config')">菜单配置</el-button>
+            <el-button v-if="!isNormalUser" type="success" @click="go('/sys_param')">参数配置</el-button>
+            <el-button v-if="!isNormalUser" @click="go('/trade_calendar')">交易日历</el-button>
+            <el-button v-if="!isNormalUser" type="warning" @click="go('/etl_batch_status')">ETL跑批状态</el-button>
+            <el-button v-if="!isNormalUser" type="warning" plain @click="go('/etl_checkpoint')">ETL跑批检查点</el-button>
+            <el-empty v-if="isNormalUser" description="普通用户无管理员快捷入口" />
           </div>
         </el-tab-pane>
         <el-tab-pane label="修改密码" name="changePwd">
