@@ -336,7 +336,7 @@ watch(
 
 .app-main {
   background: #f8fafc;
-  padding: 16px 20px;
+  padding: 16px 20px 100px 20px;
 }
 .menu {
   border-right: none;

@@ -54,7 +54,7 @@
             <when test="sortField == 'signalTrendLong'">ORDER BY t.signal_trend_long</when>
             <when test="sortField == 'signalMomentumLong'">ORDER BY t.signal_momentum_long</when>
             <when test="sortField == 'signalWarning'">ORDER BY t.signal_warning</when>
-            <otherwise>ORDER BY t.trade_time DESC, t.etf_code, t.period</otherwise>
+            <otherwise>ORDER BY t.etf_code DESC, t.trade_time DESC, t.period</otherwise>
         </choose>
         <if test="sortField != null and sortField != ''">
             <choose>

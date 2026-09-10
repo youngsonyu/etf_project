@@ -42,47 +42,53 @@
       </el-form>
     </el-card>
 
-    <el-card>
-      <div class="toolbar">
-        <slot name="toolbar" :reload="loadData" :openDialog="openDialog" />
-        <!-- <el-button type="primary" @click="openDialog()">新增</el-button> -->
-        <!-- <el-button type="danger" :disabled="!selectedIds.length" @click="handleBatchDelete">批量删除</el-button> -->
+    <el-card class="data-card">
+      <div class="data-card-body">
+        <div class="toolbar">
+          <slot name="toolbar" :reload="loadData" :openDialog="openDialog" />
+          <!-- <el-button type="primary" @click="openDialog()">新增</el-button> -->
+          <!-- <el-button type="danger" :disabled="!selectedIds.length" @click="handleBatchDelete">批量删除</el-button> -->
+        </div>
+
+        <el-table :data="tableData" @selection-change="onSelectionChange" @sort-change="handleSortChange" border class="crud-table">
+          <el-table-column type="selection" width="50" />
+          <el-table-column
+            v-for="col in normalizedColumns"
+            :key="col.prop"
+            :prop="col.prop"
+            :label="col.label"
+            :sortable="col.sortable === false ? false : 'custom'"
+            min-width="140"
+          >
+            <template v-if="col.valueMap" #default="scope">
+              {{ col.valueMap[scope.row[col.prop]] !== undefined ? col.valueMap[scope.row[col.prop]] : scope.row[col.prop] }}
+            </template>
+          </el-table-column>
+          <el-table-column v-if="enableRowActions || enableRowDelete" label="操作" width="180" fixed="right">
+            <template #default="scope">
+              <el-button v-if="enableRowActions" size="small" type="primary" link @click="openDialog(scope.row)">编辑</el-button>
+              <el-button v-if="enableRowDelete" size="small" type="danger" link @click="handleDelete(scope.row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
       </div>
+    </el-card>
 
-      <el-table :data="tableData" @selection-change="onSelectionChange" @sort-change="handleSortChange" border>
-        <el-table-column type="selection" width="50" />
-        <el-table-column
-          v-for="col in normalizedColumns"
-          :key="col.prop"
-          :prop="col.prop"
-          :label="col.label"
-          :sortable="col.sortable === false ? false : 'custom'"
-          min-width="140"
-        >
-          <template v-if="col.valueMap" #default="scope">
-            {{ col.valueMap[scope.row[col.prop]] !== undefined ? col.valueMap[scope.row[col.prop]] : scope.row[col.prop] }}
-          </template>
-        </el-table-column>
-        <el-table-column v-if="enableRowActions || enableRowDelete" label="操作" width="180" fixed="right">
-          <template #default="scope">
-            <el-button v-if="enableRowActions" size="small" type="primary" link @click="openDialog(scope.row)">编辑</el-button>
-            <el-button v-if="enableRowDelete" size="small" type="danger" link @click="handleDelete(scope.row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="pager">
+    <Teleport to="body">
+      <div class="pager" :style="pagerStyle">
         <el-pagination
           background
-          layout="total, sizes, prev, pager, next"
+          layout="total, sizes, prev, pager, next, jumper"
+          :page-sizes="[10, 20, 50, 100, 200]"
           v-model:current-page="pagination.pageNum"
           v-model:page-size="pagination.pageSize"
           :total="pagination.total"
+          :pager-count="7"
           @current-change="loadData"
           @size-change="loadData"
         />
       </div>
-    </el-card>
+    </Teleport>
 
     <el-dialog v-model="dialogVisible" :title="form.id ? '编辑' : '新增'" width="720px">
       <el-form :model="form" label-width="140px">
@@ -264,16 +270,17 @@ function buildParams() {
 
   if (searchForm.tradeDate && String(searchForm.tradeDate).trim() !== '') {
     const selectedDate = String(searchForm.tradeDate).trim()
-    const selectedPeriod = searchForm.period ? String(searchForm.period).trim() : ''
-    if (hasColumn('tradeTime') && (!selectedPeriod || selectedPeriod === 'day')) {
+    // period 无论是单值还是多选数组，trade_time 都是按天对齐（D 日 4 周期都写 D 00:00:00），
+    // 因此 K 线时间筛选对所有 period 都生效
+    if (hasColumn('tradeTime')) {
       params.tradeTimeDate = selectedDate
-    } else if (hasColumn('tradeDate') && (!selectedPeriod || selectedPeriod === 'day')) {
+    } else if (hasColumn('tradeDate')) {
       params.tradeDate = selectedDate
-    } else if (hasColumn('tradingDay') && (!selectedPeriod || selectedPeriod === 'day')) {
+    } else if (hasColumn('tradingDay')) {
       params.tradingDay = selectedDate
-    } else if (hasColumn('priceDate') && (!selectedPeriod || selectedPeriod === 'day')) {
+    } else if (hasColumn('priceDate')) {
       params.priceDate = selectedDate
-    } else if (hasColumn('changeDate') && (!selectedPeriod || selectedPeriod === 'day')) {
+    } else if (hasColumn('changeDate')) {
       params.changeDate = selectedDate
     }
   }
@@ -288,12 +295,22 @@ async function loadData() {
     ...buildParams()
   }
 
-  const res = await props.api.page(params)
-  const pageData = res.data || {}
-  tableData.value = pageData.records || []
-  pagination.total = pageData.total || 0
-  pagination.pageNum = pageData.current || pagination.pageNum
-  pagination.pageSize = pageData.size || pagination.pageSize
+  try {
+    const res = await props.api.page(params)
+    const pageData = res.data || {}
+    tableData.value = pageData.records || []
+    // 后端 JacksonConfig 把所有 long 转 string 序列化（防 JS 精度丢失）
+    // 前端需要强制转 number，否则 el-pagination 看到 "1633" 不会当数字
+    const toNum = (v, fallback = 0) => {
+      const n = Number(v)
+      return Number.isFinite(n) ? n : fallback
+    }
+    pagination.total = toNum(pageData.total, 0)
+    pagination.pageNum = toNum(pageData.current, pagination.pageNum)
+    pagination.pageSize = toNum(pageData.size, pagination.pageSize)
+  } catch (error) {
+    ElMessage.error(error?.message || '加载列表失败')
+  }
 }
 
 onMounted(() => {
@@ -319,7 +336,53 @@ defineExpose({
 .pager {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   margin-top: 12px;
+  padding: 12px 16px;
+  background: #fafbfc;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  border-top: 1px solid #ebeef5;
+  border-radius: 4px;
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.03);
+  min-height: 56px;
+}
+
+.data-card .data-card-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: calc(100vh - 240px);
+  padding-bottom: 80px; /* 给 fixed pager 留位置 */
+}
+
+.data-card .data-card-body .crud-table {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.data-card .data-card-body :deep(.el-table__inner-wrapper) {
+  max-height: 100%;
+  overflow: auto;
+}
+
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin: 0;
+  padding: 10px 16px;
+  background: #ffffff;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  min-height: 48px;
+  position: fixed;
+  bottom: 16px;
+  left: 264px;            /* 240px 侧边栏 + 24px 边距 */
+  right: 56px;            /* 给 el-main 滚动条留 40px */
+  z-index: 9999;
 }
 
 .search-select {
