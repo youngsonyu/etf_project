@@ -247,19 +247,20 @@ function buildParams() {
   }
 
   Object.entries(searchForm).forEach(([key, value]) => {
-    if (value === null || value === undefined || String(value).trim() === '') {
+    if (value === null || value === undefined) {
       return
     }
     if (key === 'etfCode' || key === 'tradeDate') {
       return
     }
-    // 多选下拉框（数组）转成逗号分隔字符串，后端用 FIND_IN_SET 匹配
     if (Array.isArray(value)) {
+      // 空数组不传参
       if (value.length === 0) {
         return
       }
-      params[key] = value.join(',')
-    } else {
+      // 数组原样发送，axios 序列化为 ?key=val1&key=val2，后端用 <foreach> 接收
+      params[key] = value
+    } else if (String(value).trim() !== '') {
       params[key] = value
     }
   })

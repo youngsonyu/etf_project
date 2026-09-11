@@ -5,6 +5,7 @@ import com.demo.entity.EtfTaIndicator;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 @Mapper
@@ -13,7 +14,7 @@ public interface EtfTaIndicatorMapper extends BaseMapper<EtfTaIndicator> {
 								  @Param("size") int size,
 								  @Param("keyword") String keyword,
 								  @Param("etfName") String etfName,
-								  @Param("period") String period,
+								  @Param("period") Collection<String> period,
 								  @Param("tradeTimeDate") String tradeTimeDate,
 								  @Param("source") String source,
 								  @Param("signalTrendLong") Integer signalTrendLong,
@@ -28,7 +29,7 @@ public interface EtfTaIndicatorMapper extends BaseMapper<EtfTaIndicator> {
 
 	long countSafe(@Param("keyword") String keyword,
 				   @Param("etfName") String etfName,
-				   @Param("period") String period,
+				   @Param("period") Collection<String> period,
 				   @Param("tradeTimeDate") String tradeTimeDate,
 				   @Param("source") String source,
 				   @Param("signalTrendLong") Integer signalTrendLong,
