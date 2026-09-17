@@ -157,7 +157,7 @@ class Config:
             "AD_USERNAME": "410500122546",
             "AD_HOST": "101.230.159.234",
             "AD_PORT": 8600,
-            "MYSQL_HOST": "127.0.0.1",
+            "MYSQL_HOST": "47.108.148.96",
             "MYSQL_PORT": 3306,
             "MYSQL_USER": "root",
             "MYSQL_PASSWORD": "",
@@ -267,9 +267,9 @@ def get_mysql_engine_from_db():
     # 先使用默认连接信息读取配置
     temp_engine = None
     try:
-        # 尝试从默认连接读取（假设已经初始化过）
+        # 使用默认账号 + 密码尝试读取 sys_param（如果失败走 fallback 硬编码）
         temp_engine = create_engine(
-            "mysql+pymysql://root@127.0.0.1:3306/amazingdata_etf?charset=utf8mb4",
+            "mysql+pymysql://root:Dwb5201314.@47.108.148.96:3306/amazingdata_etf?charset=utf8mb4",
             pool_pre_ping=True
         )
         with temp_engine.connect() as conn:
@@ -283,7 +283,7 @@ def get_mysql_engine_from_db():
             if mysql_config:
                 url = (
                     f"mysql+pymysql://{mysql_config.get('MYSQL_USER', 'root')}:{mysql_config.get('MYSQL_PASSWORD', '')}"
-                    f"@{mysql_config.get('MYSQL_HOST', '127.0.0.1')}:{mysql_config.get('MYSQL_PORT', 3306)}/{mysql_config.get('MYSQL_DB', 'amazingdata_etf')}"
+                    f"@{mysql_config.get('MYSQL_HOST', '47.108.148.96')}:{mysql_config.get('MYSQL_PORT', 3306)}/{mysql_config.get('MYSQL_DB', 'amazingdata_etf')}"
                     f"?charset={mysql_config.get('MYSQL_CHARSET', 'utf8mb4')}"
                 )
                 return create_engine(url, pool_pre_ping=True, future=True)
@@ -294,7 +294,7 @@ def get_mysql_engine_from_db():
             temp_engine.dispose()
     
     # 使用默认配置
-    url = "mysql+pymysql://root:Dwb5201314.@127.0.0.1:3306/amazingdata_etf?charset=utf8mb4"
+    url = "mysql+pymysql://root:Dwb5201314.@47.108.148.96:3306/amazingdata_etf?charset=utf8mb4"
     return create_engine(url, pool_pre_ping=True, future=True)
 
 
@@ -2024,24 +2024,59 @@ def filter_rows_by_date_range(df: pd.DataFrame, start_date: int, end_date: int) 
 
 
 def load_kline_full_for_daily_ta(engine) -> pd.DataFrame:
-    """--ta-daily 专用：拉 day/week/month/season 全部 K 线（用于按天对齐算指标）。
+    """--ta-daily 专用：按"每个周期各自需要的回看长度"分批拉 K 线。
 
-    不限制日期范围：为了让窗口内最早一天的指标也能量化到正确的值（MACD/RSI/KDJ 等
-    需要回看 100+ 个根），需要每个 (etf, period) 都有尽可能全的历史。
+    全量拉 (etf_market_kline 4 周期 × 718 天 × 1637 ETF ≈ 470 万行) 会在大窗口下
+    把 MySQL 拉超时（Lost connection during query）。分周期 4 次拉，单次数据量
+    控制在 ~10 万行以内，稳过；又保证季线 60 根回看足够（指标值不漂）。
     """
-    period_sql = ",".join([f"'{x}'" for x in config.TARGET_PERIODS])
-    sql = f"""
-    SELECT
-        etf_code, period, trade_time, open_price, high_price, low_price, close_price,
-        volume, amount, source, etl_batch_no, created_at, updated_at
-    FROM etf_market_kline
-    WHERE period IN ({period_sql})
-    ORDER BY etf_code, period, trade_time
-    """
-    print(f"[INFO] --ta-daily 加载全部 K 线（period IN ({period_sql})）用于回看计算")
-    df = pd.read_sql(text(sql), engine)
-    if df.empty:
-        return df
+    # 每个周期需要的最小回看天数（覆盖 MACD=26+9, RSI=24, BOLL=20, KDJ=9 加缓冲）
+    LOOKBACK_DAYS_BY_PERIOD = {
+        "day": 250,      # 250 个交易日 ~ 1 年
+        "week": 300,     # ~60 周
+        "month": 1500,   # ~60 月
+        "season": 4500,  # ~60 季（关键：保证季线 MACD/RSI 不漂）
+    }
+
+    frames = []
+    try:
+        with engine.connect() as conn:
+            for period, lookback_days in LOOKBACK_DAYS_BY_PERIOD.items():
+                # 先用 1 次小查询拿"窗口起点"（取该周期最近的 N 根 K 线的最早 trade_time）
+                # 用 trade_time DESC LIMIT 1 拿最近 1 根做参考，DATE_SUB 推 lookback_days
+                # 不依赖 trade_calendar，避免空表/不一致问题
+                ref_sql = text("""
+                    SELECT DATE_SUB(MAX(trade_time), INTERVAL :days DAY) AS min_dt
+                    FROM etf_market_kline
+                    WHERE period = :p
+                """)
+                ref_row = conn.execute(ref_sql, {"p": period, "days": lookback_days}).fetchone()
+                min_dt = ref_row[0] if ref_row and ref_row[0] else None
+                if min_dt is None:
+                    print(f"[WARN] --ta-daily {period} 没有可用 K 线，跳过")
+                    continue
+
+                # 拉该周期窗口内的全部 K 线（带 trade_time 过滤）
+                sql = text("""
+                    SELECT
+                        etf_code, period, trade_time, open_price, high_price, low_price, close_price,
+                        volume, amount, source, etl_batch_no, created_at, updated_at
+                    FROM etf_market_kline
+                    WHERE period = :p
+                      AND trade_time >= :min_dt
+                    ORDER BY etf_code, period, trade_time
+                """)
+                df_p = pd.read_sql(sql, engine, params={"p": period, "min_dt": min_dt})
+                print(f"[INFO] --ta-daily 加载 {period}: min_dt={min_dt}, rows={len(df_p)}")
+                if not df_p.empty:
+                    frames.append(df_p)
+    except Exception as e:
+        print(f"[ERROR] --ta-daily 加载 K 线失败: {e}")
+        raise
+
+    if not frames:
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
     df = TechnicalIndicatorCalculator.normalize_kline_df(df)
     df["source"] = df["source"].fillna(config.SOURCE)
     return df
