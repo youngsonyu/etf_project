@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 @Data
 @TableName("etf_ta_indicator")
 public class EtfTaIndicator {
-    @TableId(type = IdType.AUTO)
+    @TableId(value = "my_row_id", type = IdType.AUTO)
     private Long id;
     @TableField("etf_code")
     private String etfCode;
