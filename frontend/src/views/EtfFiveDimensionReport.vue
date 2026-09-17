@@ -236,8 +236,8 @@ async function deleteReport(row) {
 async function generateLatestReport() {
   try {
     generating.value = true
-    const publisher = localStorage.getItem('etf_account') || localStorage.getItem('etf_username') || 'AI智能体'
-    const res = await api.generateLatest(publisher)
+    // AI 自动生成的报告，发布人固定为"AI智能体"，不取当前账号
+    const res = await api.generateLatest('AI智能体')
     ElMessage.success('已生成并发布最新交易日报告')
     await loadData()
 
