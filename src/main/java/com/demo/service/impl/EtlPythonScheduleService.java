@@ -50,6 +50,8 @@ public class EtlPythonScheduleService {
     private static final String PYTHON_SCRIPT_PATH_ENV = "PYTHON_SCRIPT_PATH";
     private static final String AUTO_JOB_NAME = "ETF_DATA_ETL";
     private static final String MANUAL_JOB_NAME = "ETF_MANUAL_IMPORT";
+    private static final String TA_CALC_JOB_NAME = "TA_CALC";
+    private static final String TA_DAILY_JOB_NAME = "TA_DAILY";
     private static final String MANUAL_STATUS_REQUESTED = "REQUESTED";
     private static final String MANUAL_STATUS_RUNNING = "RUNNING";
     private static final String MANUAL_STATUS_SUCCESS = "SUCCESS";
@@ -167,7 +169,7 @@ public class EtlPythonScheduleService {
         String batchNo = "TA_CALC_" + LocalDateTime.now().format(BATCH_NO_FORMATTER);
         TriggerWindow triggerWindow = resolveTriggerWindow();
         try {
-            insertTriggerRecord(batchNo, MANUAL_JOB_NAME, triggerWindow.startDate, triggerWindow.endDate, MANUAL_STATUS_REQUESTED);
+            insertTriggerRecord(batchNo, TA_CALC_JOB_NAME, triggerWindow.startDate, triggerWindow.endDate, MANUAL_STATUS_REQUESTED);
         } catch (Exception ex) {
             running.set(false);
             log.error("Failed to insert manual TA calc trigger marker", ex);
@@ -203,7 +205,7 @@ public class EtlPythonScheduleService {
         String batchNo = "TA_DAILY_" + LocalDateTime.now().format(BATCH_NO_FORMATTER);
         TriggerWindow triggerWindow = resolveTriggerWindow();
         try {
-            insertTriggerRecord(batchNo, MANUAL_JOB_NAME, triggerWindow.startDate, triggerWindow.endDate, MANUAL_STATUS_REQUESTED);
+            insertTriggerRecord(batchNo, TA_DAILY_JOB_NAME, triggerWindow.startDate, triggerWindow.endDate, MANUAL_STATUS_REQUESTED);
         } catch (Exception ex) {
             running.set(false);
             log.error("Failed to insert manual TA daily calc trigger marker", ex);
