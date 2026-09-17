@@ -87,6 +87,7 @@ const searchItems = [
     prop: 'status',
     label: '状态',
     type: 'select',
+    defaultValue: 'RUNNING',
     options: [
       { label: 'RUNNING', value: 'RUNNING' },
       { label: 'SUCCESS', value: 'SUCCESS' },
@@ -234,13 +235,14 @@ async function handleCalcFlow(reload) {
   }
   calculatingFlow.value = true
   try {
+    // 异步提交：立刻返回 batchNo，后台线程跑
     const res = await fundFlowApi.accumulate({ startDate, endDate })
-    ElMessage.success(res?.data || '资金流向金额计算完成')
+    ElMessage.success(res?.data || '资金流向金额计算任务已提交，后台执行中')
     flowDateRange.value = []
     scheduleReload(reload)
   } catch (error) {
     if (error === 'cancel' || error === 'close') return
-    ElMessage.error(error?.message || '资金流向金额计算失败')
+    ElMessage.error(error?.message || '资金流向金额计算任务提交失败')
   } finally {
     calculatingFlow.value = false
   }
